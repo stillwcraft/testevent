@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анализатор .har файлов</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-radius: 10px;
+            background-color: #fff;
+        }
+        h1 {
+            color: #1a1a1a;
+            text-align: center;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        input[type="url"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        .controls-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin: 20px auto;
+            flex-wrap: wrap;
+        }
+        #har-file-input {
+            opacity: 0;
+            position: absolute;
+            z-index: -1;
+        }
+        .file-upload-label {
+            display: inline-block;
+            padding: 12px 30px;
+            border: 2px dashed #007aff;
+            border-radius: 8px;
+            cursor: pointer;
+            color: #007aff;
+            background-color: #f4f7ff;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .file-upload-label:hover {
+            background-color: #eaf2ff;
+        }
+        #compare-button {
+            padding: 14px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #fff;
+            background-color: #007aff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #compare-button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        #compare-button:disabled {
+            background-color: #c7c7cc;
+            cursor: not-allowed;
+        }
+        #file-name {
+            width: 100%;
+            text-align: center;
+            margin-top: 10px;
+            font-style: italic;
+            color: #5f6368;
+        }
+        #status-message {
+            text-align: center;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+        #results-container {
+            margin-top: 30px;
+            border-top: 1px solid #e0e0e0;
+            padding-top: 20px;
+        }
+        h2 {
+            color: #1a1a1a;
+        }
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        li {
+            background-color: #f9f9f9;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin-bottom: 8px;
+            border-left: 4px solid #af52de; /* Фиолетовый для пропущенных событий */
+            word-break: break-all;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        li:hover {
+            background-color: #f0f0f0;
+        }
+        li.active {
+            background-color: #e9e9f0;
+        }
+        .spoiler-content {
+            display: none;
+            padding: 10px;
+            margin-top: 10px;
+            background-color: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            color: #555;
+        }
+        .error {
+            color: #d93025;
+            font-weight: bold;
+            border-left-color: #d93025;
+            cursor: default;
+        }
+        .empty {
+             color: #5f6368;
+             border-left-color: #34c759; /* Зеленый, если все события на месте */
+             cursor: default;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Загрузчик и анализатор .har файлов</h1>
+
+    <div class="input-group">
+        <label for="sheet-url-input">URL Google Таблицы:</label>
+        <input type="url" id="sheet-url-input" placeholder="Вставьте ссылку на публичную Google Таблицу...">
+    </div>
+
+    <div class="controls-wrapper">
+        <label for="har-file-input" class="file-upload-label">Выберите .har файл</label>
+        <input type="file" id="har-file-input" accept=".har">
+        <button id="compare-button" disabled>Произвести сравнение</button>
+    </div>
+    <div id="file-name">Файл не выбран</div>
+    
+    <div id="status-message"></div>
+
+    <div id="results-container">
+        <h2>События из таблицы, не найденные в файле:</h2>
+        <ul id="event-list">
+            <li class="empty">Здесь будет список пропущенных событий...</li>
+        </ul>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('har-file-input');
+        const eventList = document.getElementById('event-list');
+        const fileNameSpan = document.getElementById('file-name');
+        const statusMessage = document.getElementById('status-message');
+        const sheetUrlInput = document.getElementById('sheet-url-input');
+        const compareButton = document.getElementById('compare-button');
+
+        let selectedHarFile = null;
+
+        // Добавляем обработчики для активации/деактивации кнопки
+        fileInput.addEventListener('change', handleFileSelect);
+        sheetUrlInput.addEventListener('input', updateButtonState);
+        compareButton.addEventListener('click', startComparison);
+        
+        function updateButtonState() {
+            const urlEntered = sheetUrlInput.value.trim() !== '';
+            const fileSelected = selectedHarFile !== null;
+            compareButton.disabled = !(urlEntered && fileSelected);
+        }
+
+        function handleFileSelect(event) {
+            selectedHarFile = event.target.files[0];
+            if (selectedHarFile) {
+                fileNameSpan.textContent = `Выбран файл: ${selectedHarFile.name}`;
+            } else {
+                fileNameSpan.textContent = 'Файл не выбран';
+            }
+            updateButtonState();
+        }
+        
+        function convertGoogleSheetUrlToCsvUrl(url) {
+            const idRegex = /\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/;
+            const idMatch = url.match(idRegex);
+
+            if (!idMatch || !idMatch[1]) {
+                return null;
+            }
+            const sheetId = idMatch[1];
+
+            const gidRegex = /[#&]gid=(\d+)/;
+            const gidMatch = url.match(gidRegex);
+            
+            let csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
+
+            if (gidMatch && gidMatch[1]) {
+                const gid = gidMatch[1];
+                csvUrl += `&gid=${gid}`;
+            }
+            
+            return csvUrl;
+        }
+
+        async function fetchKnownEvents(userUrl) {
+            const csvUrl = convertGoogleSheetUrlToCsvUrl(userUrl);
+            if (!csvUrl) {
+                throw new Error('Неверный URL Google Таблицы. Убедитесь, что ссылка корректна.');
+            }
+            
+            statusMessage.textContent = 'Загрузка списка известных событий из Google Sheets...';
+            statusMessage.style.color = '#007aff';
+
+            try {
+                const response = await fetch(csvUrl);
+                if (!response.ok) {
+                    throw new Error(`Сетевая ошибка: ${response.statusText}`);
+                }
+                const csvText = await response.text();
+                
+                const knownEventsMap = new Map();
+                const rows = csvText.split('\n');
+                const startIndex = rows[0].toLowerCase().includes("event_type") ? 1 : 0;
+
+                for (let i = startIndex; i < rows.length; i++) {
+                    const row = rows[i].trim();
+                    if (row.length === 0) continue;
+                    
+                    const cleanedRow = row.startsWith('"') && row.endsWith('"') ? row.slice(1, -1) : row;
+                    const columns = cleanedRow.split('","');
+                    
+                    const eventType = columns[0];
+                    const description = columns[1] || 'Описание не предоставлено.';
+
+                    if (eventType) {
+                        knownEventsMap.set(eventType, description);
+                    }
+                }
+                
+                statusMessage.textContent = 'Список известных событий успешно загружен.';
+                statusMessage.style.color = '#34c759';
+                return knownEventsMap;
+
+            } catch (error) {
+                statusMessage.textContent = `Ошибка загрузки таблицы: ${error.message}`;
+                statusMessage.style.color = '#d93025';
+                console.error('Ошибка при загрузке Google Sheet:', error);
+                throw error;
+            }
+        }
+
+        async function startComparison() {
+            const userUrl = sheetUrlInput.value.trim();
+            eventList.innerHTML = '';
+
+            try {
+                const knownEventsMap = await fetchKnownEvents(userUrl);
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const harData = JSON.parse(e.target.result);
+                        const harEventsArray = findEventTypesAdvanced(harData);
+                        const harEventsSet = new Set(harEventsArray);
+                        
+                        const missingEvents = Array.from(knownEventsMap.keys()).filter(event => !harEventsSet.has(event));
+                        
+                        displayResults(missingEvents, knownEventsMap);
+
+                    } catch (error) {
+                        displayError("Ошибка! Не удалось прочитать файл. Убедитесь, что это корректный .har (JSON) файл.");
+                        console.error("Ошибка парсинга HAR файла:", error);
+                    }
+                };
+                reader.readAsText(selectedHarFile);
+
+            } catch (error) {
+                // Ошибка уже отображена в fetchKnownEvents, просто выходим
+                return;
+            }
+        }
+
+        function findEventTypesAdvanced(harData) {
+            const foundEvents = new Set();
+            const searchKey = 'event_type';
+
+            function recursiveSearch(obj) {
+                if (typeof obj !== 'object' || obj === null) return;
+                if (searchKey in obj) foundEvents.add(obj[searchKey]);
+                for (const k in obj) if (obj.hasOwnProperty(k)) recursiveSearch(obj[k]);
+            }
+            
+            function parseUrlEncoded(text) {
+                try {
+                    const params = new URLSearchParams(text);
+                    if (params.has(searchKey)) foundEvents.add(params.get(searchKey));
+                } catch(e) { /* Игнорируем */ }
+            }
+
+            if (harData && harData.log && harData.log.entries) {
+                for (const entry of harData.log.entries) {
+                    if (entry.request && entry.request.url) {
+                        try {
+                            const url = new URL(entry.request.url);
+                            if (url.searchParams.has(searchKey)) foundEvents.add(url.searchParams.get(searchKey));
+                        } catch(e) { /* Игнорируем */ }
+                    }
+
+                    if (entry.request && entry.request.postData && entry.request.postData.text) {
+                        const text = entry.request.postData.text;
+                        try {
+                            recursiveSearch(JSON.parse(text));
+                        } catch (e) {
+                            parseUrlEncoded(text);
+                        }
+                    }
+                    
+                     if (entry.response && entry.response.content && entry.response.content.text) {
+                        try {
+                            recursiveSearch(JSON.parse(entry.response.content.text));
+                        } catch (e) { /* Игнорируем */ }
+                    }
+                }
+            }
+            return Array.from(foundEvents);
+        }
+
+        function displayResults(events, knownEventsMap) {
+            eventList.innerHTML = '';
+
+            if (events.length > 0) {
+                events.forEach(eventType => {
+                    const li = document.createElement('li');
+                    
+                    const eventNameSpan = document.createElement('span');
+                    eventNameSpan.textContent = eventType;
+                    li.appendChild(eventNameSpan);
+                    
+                    const description = knownEventsMap.get(eventType) || 'Описание для этого события не найдено в таблице.';
+                    
+                    const spoilerDiv = document.createElement('div');
+                    spoilerDiv.className = 'spoiler-content';
+                    spoilerDiv.textContent = description;
+                    li.appendChild(spoilerDiv);
+                    
+                    li.addEventListener('click', () => {
+                        const isVisible = spoilerDiv.style.display === 'block';
+                        spoilerDiv.style.display = isVisible ? 'none' : 'block';
+                        li.classList.toggle('active', !isVisible);
+                    });
+
+                    eventList.appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.className = 'empty';
+                li.textContent = 'Пропущенных событий нет. Все события из таблицы были найдены в файле.';
+                eventList.appendChild(li);
+            }
+        }
+        
+        function displayError(message) {
+            eventList.innerHTML = '';
+            const li = document.createElement('li');
+            li.className = 'error';
+            li.textContent = message;
+            eventList.appendChild(li);
+        }
+
+    </script>
+</body>
+</html>
