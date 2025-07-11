@@ -144,26 +144,26 @@
 </head>
 <body>
 
-    <h1>Загрузчик и анализатор .har файлов</h1>
+    <h1>Завантажувач та аналізатор .har файлів</h1>
 
     <div class="input-group">
         <label for="sheet-url-input">URL Google Таблицы:</label>
-        <input type="url" id="sheet-url-input" placeholder="Вставьте ссылку на публичную Google Таблицу...">
+        <input type="url" id="sheet-url-input" placeholder="Додайте посилання на Google Таблицу...">
     </div>
 
     <div class="controls-wrapper">
-        <label for="har-file-input" class="file-upload-label">Выберите .har файл</label>
+        <label for="har-file-input" class="file-upload-label">Виберіть .har файл</label>
         <input type="file" id="har-file-input" accept=".har">
-        <button id="compare-button" disabled>Произвести сравнение</button>
+        <button id="compare-button" disabled>Провести зрівняння</button>
     </div>
-    <div id="file-name">Файл не выбран</div>
+    <div id="file-name">Файл не додан</div>
     
     <div id="status-message"></div>
 
     <div id="results-container">
-        <h2>События из таблицы, не найденные в файле:</h2>
+        <h2>Події з таблиці, які не знайдені у файлі:</h2>
         <ul id="event-list">
-            <li class="empty">Здесь будет список пропущенных событий...</li>
+            <li class="empty">Тут буде список пропущених подій.</li>
         </ul>
     </div>
 
@@ -191,9 +191,9 @@
         function handleFileSelect(event) {
             selectedHarFile = event.target.files[0];
             if (selectedHarFile) {
-                fileNameSpan.textContent = `Выбран файл: ${selectedHarFile.name}`;
+                fileNameSpan.textContent = `Вибраний файл: ${selectedHarFile.name}`;
             } else {
-                fileNameSpan.textContent = 'Файл не выбран';
+                fileNameSpan.textContent = 'Файл не вибраний';
             }
             updateButtonState();
         }
@@ -223,7 +223,7 @@
         async function fetchKnownEvents(userUrl) {
             const csvUrl = convertGoogleSheetUrlToCsvUrl(userUrl);
             if (!csvUrl) {
-                throw new Error('Неверный URL Google Таблицы. Убедитесь, что ссылка корректна.');
+                throw new Error('Невірна URL-адреса Google Таблиці Переконайтеся, що посилання коректне.');
             }
             
             statusMessage.textContent = 'Загрузка списка известных событий из Google Sheets...';
@@ -286,8 +286,8 @@
                         displayResults(missingEvents, knownEventsMap);
 
                     } catch (error) {
-                        displayError("Ошибка! Не удалось прочитать файл. Убедитесь, что это корректный .har (JSON) файл.");
-                        console.error("Ошибка парсинга HAR файла:", error);
+                        displayError("Помилка! Неможливо прочитати файл. Переконайтеся, що це правильний .har (JSON) файл.");
+                        console.error("Помилка парсингу HAR файлу:", error);
                     }
                 };
                 reader.readAsText(selectedHarFile);
@@ -354,7 +354,7 @@
                     eventNameSpan.textContent = eventType;
                     li.appendChild(eventNameSpan);
                     
-                    const description = knownEventsMap.get(eventType) || 'Описание для этого события не найдено в таблице.';
+                    const description = knownEventsMap.get(eventType) || 'Опис цієї події не знайдено в таблиці.';
                     
                     const spoilerDiv = document.createElement('div');
                     spoilerDiv.className = 'spoiler-content';
@@ -372,7 +372,7 @@
             } else {
                 const li = document.createElement('li');
                 li.className = 'empty';
-                li.textContent = 'Пропущенных событий нет. Все события из таблицы были найдены в файле.';
+                li.textContent = 'Пропущених подій немає. Усі події з таблиці були знайдені у файлі.';
                 eventList.appendChild(li);
             }
         }
