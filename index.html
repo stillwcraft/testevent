@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="uk">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Анализатор .har файлов</title>
+    <title>Аналізатор .har файлів</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -92,7 +92,7 @@
             margin-top: 15px;
             font-weight: bold;
         }
-        #results-container {
+        .results-section {
             margin-top: 30px;
             border-top: 1px solid #e0e0e0;
             padding-top: 20px;
@@ -109,16 +109,23 @@
             padding: 10px 15px;
             border-radius: 5px;
             margin-bottom: 8px;
-            border-left: 4px solid #af52de; /* Фиолетовый для пропущенных событий */
             word-break: break-all;
-            cursor: pointer;
             transition: background-color 0.2s;
         }
-        li:hover {
-            background-color: #f0f0f0;
+        /* Стили для пропущенных событий */
+        #missing-event-list li {
+            border-left: 4px solid #af52de;
+            cursor: pointer;
         }
-        li.active {
+        #missing-event-list li:hover {
+             background-color: #f0f0f0;
+        }
+        #missing-event-list li.active {
             background-color: #e9e9f0;
+        }
+        /* Стили для новых/неизвестных событий */
+        #unknown-event-list li {
+             border-left: 4px solid #ff9500;
         }
         .spoiler-content {
             display: none;
@@ -137,7 +144,7 @@
         }
         .empty {
              color: #5f6368;
-             border-left-color: #34c759; /* Зеленый, если все события на месте */
+             border-left-color: #34c759; /* Зеленый, если все в порядке */
              cursor: default;
         }
     </style>
@@ -147,29 +154,37 @@
     <h1>Завантажувач та аналізатор .har файлів</h1>
 
     <div class="input-group">
-        <label for="sheet-url-input">URL Google Таблицы:</label>
-        <input type="url" id="sheet-url-input" placeholder="Додайте посилання на Google Таблицу...">
+        <label for="sheet-url-input">URL Google Таблиці:</label>
+        <input type="url" id="sheet-url-input" placeholder="Вставте посилання на публічну Google Таблицю...">
     </div>
 
     <div class="controls-wrapper">
-        <label for="har-file-input" class="file-upload-label">Виберіть .har файл</label>
+        <label for="har-file-input" class="file-upload-label">Оберіть .har файл</label>
         <input type="file" id="har-file-input" accept=".har">
-        <button id="compare-button" disabled>Провести зрівняння</button>
+        <button id="compare-button" disabled>Зробити порівняння</button>
     </div>
-    <div id="file-name">Файл не додан</div>
+    <div id="file-name">Файл не обрано</div>
     
     <div id="status-message"></div>
 
-    <div id="results-container">
-        <h2>Події з таблиці, які не знайдені у файлі:</h2>
-        <ul id="event-list">
-            <li class="empty">Тут буде список пропущених подій.</li>
+    <div id="results-container" class="results-section">
+        <h2>Події з таблиці, які не знайдено у файлі:</h2>
+        <ul id="missing-event-list">
+            <li class="empty">Тут буде список пропущених подій...</li>
+        </ul>
+    </div>
+
+    <div id="unknown-results-container" class="results-section">
+        <h2>Події, знайдені у файлі, але відсутні у таблиці:</h2>
+        <ul id="unknown-event-list">
+            <li class="empty">Тут буде список нових/невідомих подій...</li>
         </ul>
     </div>
 
     <script>
         const fileInput = document.getElementById('har-file-input');
-        const eventList = document.getElementById('event-list');
+        const missingEventList = document.getElementById('missing-event-list');
+        const unknownEventList = document.getElementById('unknown-event-list');
         const fileNameSpan = document.getElementById('file-name');
         const statusMessage = document.getElementById('status-message');
         const sheetUrlInput = document.getElementById('sheet-url-input');
@@ -177,7 +192,6 @@
 
         let selectedHarFile = null;
 
-        // Добавляем обработчики для активации/деактивации кнопки
         fileInput.addEventListener('change', handleFileSelect);
         sheetUrlInput.addEventListener('input', updateButtonState);
         compareButton.addEventListener('click', startComparison);
@@ -191,9 +205,9 @@
         function handleFileSelect(event) {
             selectedHarFile = event.target.files[0];
             if (selectedHarFile) {
-                fileNameSpan.textContent = `Вибраний файл: ${selectedHarFile.name}`;
+                fileNameSpan.textContent = `Обрано файл: ${selectedHarFile.name}`;
             } else {
-                fileNameSpan.textContent = 'Файл не вибраний';
+                fileNameSpan.textContent = 'Файл не обрано';
             }
             updateButtonState();
         }
@@ -223,16 +237,16 @@
         async function fetchKnownEvents(userUrl) {
             const csvUrl = convertGoogleSheetUrlToCsvUrl(userUrl);
             if (!csvUrl) {
-                throw new Error('Невірна URL-адреса Google Таблиці Переконайтеся, що посилання коректне.');
+                throw new Error('Невірний URL Google Таблиці. Переконайтеся, що посилання коректне.');
             }
             
-            statusMessage.textContent = 'Загрузка списка известных событий из Google Sheets...';
+            statusMessage.textContent = 'Завантаження списку відомих подій з Google Sheets...';
             statusMessage.style.color = '#007aff';
 
             try {
                 const response = await fetch(csvUrl);
                 if (!response.ok) {
-                    throw new Error(`Сетевая ошибка: ${response.statusText}`);
+                    throw new Error(`Мережева помилка: ${response.statusText}`);
                 }
                 const csvText = await response.text();
                 
@@ -248,19 +262,19 @@
                     const columns = cleanedRow.split('","');
                     
                     const eventType = columns[0];
-                    const description = columns[1] || 'Описание не предоставлено.';
+                    const description = columns[1] || 'Опис не надано.';
 
                     if (eventType) {
                         knownEventsMap.set(eventType, description);
                     }
                 }
                 
-                statusMessage.textContent = 'Список известных событий успешно загружен.';
+                statusMessage.textContent = 'Список відомих подій успішно завантажено.';
                 statusMessage.style.color = '#34c759';
                 return knownEventsMap;
 
             } catch (error) {
-                statusMessage.textContent = `Ошибка загрузки таблицы: ${error.message}`;
+                statusMessage.textContent = `Помилка завантаження таблиці: ${error.message}`;
                 statusMessage.style.color = '#d93025';
                 console.error('Ошибка при загрузке Google Sheet:', error);
                 throw error;
@@ -269,7 +283,8 @@
 
         async function startComparison() {
             const userUrl = sheetUrlInput.value.trim();
-            eventList.innerHTML = '';
+            missingEventList.innerHTML = '';
+            unknownEventList.innerHTML = '';
 
             try {
                 const knownEventsMap = await fetchKnownEvents(userUrl);
@@ -282,18 +297,19 @@
                         const harEventsSet = new Set(harEventsArray);
                         
                         const missingEvents = Array.from(knownEventsMap.keys()).filter(event => !harEventsSet.has(event));
+                        const unknownEvents = harEventsArray.filter(event => !knownEventsMap.has(event));
                         
-                        displayResults(missingEvents, knownEventsMap);
+                        displayMissingEvents(missingEvents, knownEventsMap);
+                        displayUnknownEvents(unknownEvents);
 
                     } catch (error) {
-                        displayError("Помилка! Неможливо прочитати файл. Переконайтеся, що це правильний .har (JSON) файл.");
-                        console.error("Помилка парсингу HAR файлу:", error);
+                        displayError("Помилка! Не вдалося прочитати файл. Переконайтеся, що це коректний .har (JSON) файл.");
+                        console.error("Ошибка парсинга HAR файла:", error);
                     }
                 };
                 reader.readAsText(selectedHarFile);
 
             } catch (error) {
-                // Ошибка уже отображена в fetchKnownEvents, просто выходим
                 return;
             }
         }
@@ -343,8 +359,8 @@
             return Array.from(foundEvents);
         }
 
-        function displayResults(events, knownEventsMap) {
-            eventList.innerHTML = '';
+        function displayMissingEvents(events, knownEventsMap) {
+            missingEventList.innerHTML = '';
 
             if (events.length > 0) {
                 events.forEach(eventType => {
@@ -354,7 +370,7 @@
                     eventNameSpan.textContent = eventType;
                     li.appendChild(eventNameSpan);
                     
-                    const description = knownEventsMap.get(eventType) || 'Опис цієї події не знайдено в таблиці.';
+                    const description = knownEventsMap.get(eventType) || 'Опис для цієї події не знайдено в таблиці.';
                     
                     const spoilerDiv = document.createElement('div');
                     spoilerDiv.className = 'spoiler-content';
@@ -367,22 +383,39 @@
                         li.classList.toggle('active', !isVisible);
                     });
 
-                    eventList.appendChild(li);
+                    missingEventList.appendChild(li);
                 });
             } else {
                 const li = document.createElement('li');
                 li.className = 'empty';
-                li.textContent = 'Пропущених подій немає. Усі події з таблиці були знайдені у файлі.';
-                eventList.appendChild(li);
+                li.textContent = 'Пропущених подій немає. Всі події з таблиці були знайдені у файлі.';
+                missingEventList.appendChild(li);
+            }
+        }
+
+        function displayUnknownEvents(events) {
+            unknownEventList.innerHTML = '';
+
+            if (events.length > 0) {
+                events.forEach(eventType => {
+                    const li = document.createElement('li');
+                    li.textContent = eventType;
+                    unknownEventList.appendChild(li);
+                });
+            } else {
+                const li = document.createElement('li');
+                li.className = 'empty';
+                li.textContent = 'Нових/невідомих подій у файлі не знайдено.';
+                unknownEventList.appendChild(li);
             }
         }
         
         function displayError(message) {
-            eventList.innerHTML = '';
+            missingEventList.innerHTML = '';
             const li = document.createElement('li');
             li.className = 'error';
             li.textContent = message;
-            eventList.appendChild(li);
+            missingEventList.appendChild(li);
         }
 
     </script>
