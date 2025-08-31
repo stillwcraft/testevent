@@ -173,9 +173,9 @@
     <div id="status-message"></div>
 
     <div id="device-info-container" class="results-section">
-        <h2>Інформація про пристрій (device):</h2>
+        <h2>Інформація про пристрій та версію:</h2>
         <ul id="device-info-details">
-             <li class="empty">Інформація про пристрій не знайдена...</li>
+             <li class="empty">Інформація не знайдена...</li>
         </ul>
     </div>
 
@@ -321,7 +321,8 @@
                         const harData = JSON.parse(e.target.result);
                         
                         const deviceInfo = findDeviceObject(harData);
-                        displayDeviceInfo(deviceInfo);
+                        const appVersion = findAppVersion(harData);
+                        displayDeviceInfo(deviceInfo, appVersion);
                         
                         const harEventsArray = findEventTypesAdvanced(harData);
                         const harEventsSet = new Set(harEventsArray);
@@ -333,7 +334,7 @@
                         displayUnknownEvents(unknownEvents);
 
                         // После анализа отправляем отчет
-                        sendEmailReport(missingEvents, unknownEvents, userUrl, deviceInfo);
+                        sendEmailReport(missingEvents, unknownEvents, userUrl, deviceInfo, appVersion);
 
                     } catch (error) {
                         displayError("Помилка! Не вдалося прочитати файл. Переконайтеся, що це коректний .har (JSON) файл.");
@@ -355,10 +356,8 @@
                 if (deviceObject) return; // Stop if already found
                 if (typeof obj !== 'object' || obj === null) return;
 
-                // Check if this object contains a 'device' key
                 if (obj.hasOwnProperty('device')) {
                     const potentialDevice = obj.device;
-                    // Check if the 'device' object has all the required keys
                     const hasAllKeys = requiredKeys.every(key => potentialDevice.hasOwnProperty(key));
                     if (hasAllKeys) {
                         deviceObject = potentialDevice;
@@ -389,6 +388,48 @@
                 }
             }
             return deviceObject;
+        }
+
+        function findAppVersion(harData) {
+            let appVersion = null;
+
+            function recursiveSearch(obj) {
+                if (appVersion) return; // Stop if already found
+                if (typeof obj !== 'object' || obj === null) return;
+
+                if (obj.hasOwnProperty('app') && typeof obj.app === 'object' && obj.app !== null && obj.app.hasOwnProperty('version')) {
+                    appVersion = obj.app.version;
+                    return;
+                }
+                
+                if (obj.hasOwnProperty('event_type') && obj.event_type === 'app' && obj.hasOwnProperty('version')) {
+                    appVersion = obj.version;
+                    return;
+                }
+
+                for (const k in obj) {
+                    if (obj.hasOwnProperty(k)) {
+                        recursiveSearch(obj[k]);
+                    }
+                }
+            }
+
+            if (harData && harData.log && harData.log.entries) {
+                for (const entry of harData.log.entries) {
+                    if (appVersion) break;
+                    const textSources = [];
+                    if (entry.request?.postData?.text) textSources.push(entry.request.postData.text);
+                    if (entry.response?.content?.text) textSources.push(entry.response.content.text);
+
+                    for (const text of textSources) {
+                        try {
+                            recursiveSearch(JSON.parse(text));
+                            if (appVersion) break;
+                        } catch (e) { /* ignore */ }
+                    }
+                }
+            }
+            return appVersion;
         }
 
         function findEventTypesAdvanced(harData) {
@@ -436,9 +477,11 @@
             return Array.from(foundEvents);
         }
 
-        function displayDeviceInfo(deviceInfo) {
+        function displayDeviceInfo(deviceInfo, appVersion) {
             deviceInfoDetails.innerHTML = '';
+            let infoFound = false;
             if (deviceInfo) {
+                infoFound = true;
                 for (const key in deviceInfo) {
                     if (deviceInfo.hasOwnProperty(key)) {
                         const li = document.createElement('li');
@@ -446,10 +489,18 @@
                         deviceInfoDetails.appendChild(li);
                     }
                 }
-            } else {
+            }
+            if (appVersion) {
+                infoFound = true;
+                const li = document.createElement('li');
+                li.innerHTML = `<strong>version:</strong> ${appVersion}`;
+                deviceInfoDetails.appendChild(li);
+            }
+
+            if (!infoFound) {
                 const li = document.createElement('li');
                 li.className = 'empty';
-                li.textContent = 'Інформація про пристрій не знайдена...';
+                li.textContent = 'Інформація про пристрій та версію не знайдена...';
                 deviceInfoDetails.appendChild(li);
             }
         }
@@ -521,19 +572,24 @@
             deviceInfoDetails.appendChild(li);
         }
 
-        function sendEmailReport(missingEvents, unknownEvents, sheetUrl, deviceInfo) {
+        function sendEmailReport(missingEvents, unknownEvents, sheetUrl, deviceInfo, appVersion) {
             const reportDate = new Date().toLocaleString('uk-UA');
             const subject = `Звіт від ${reportDate} для файлу: ${selectedHarFile.name}`;
             
-            let deviceInfoHtml = '<h3>Інформація про пристрій:</h3>';
-            if (deviceInfo) {
+            let deviceInfoHtml = '<h3>Інформація про пристрій та версію:</h3>';
+            if (deviceInfo || appVersion) {
                 deviceInfoHtml += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; width: 100%; border-color: #ddd;"><tbody>';
-                for (const key in deviceInfo) {
-                     deviceInfoHtml += `<tr><td style="padding: 8px; width: 30%; font-weight: bold;">${key}</td><td style="padding: 8px;">${deviceInfo[key]}</td></tr>`;
+                if (deviceInfo) {
+                    for (const key in deviceInfo) {
+                        deviceInfoHtml += `<tr><td style="padding: 8px; width: 30%; font-weight: bold;">${key}</td><td style="padding: 8px;">${deviceInfo[key]}</td></tr>`;
+                    }
+                }
+                if (appVersion) {
+                    deviceInfoHtml += `<tr><td style="padding: 8px; width: 30%; font-weight: bold;">version</td><td style="padding: 8px;">${appVersion}</td></tr>`;
                 }
                 deviceInfoHtml += '</tbody></table>';
             } else {
-                deviceInfoHtml += '<p>Інформація про пристрій не знайдена.</p>';
+                deviceInfoHtml += '<p>Інформація про пристрій та версію не знайдена.</p>';
             }
 
             let missingEventsHtml = '<h3 style="margin-top: 20px;">Події з таблиці, які не знайдено у файлі:</h3>';
