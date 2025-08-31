@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Аналізатор .har файлів</title>
+    <!-- Подключение библиотеки EmailJS -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -112,6 +114,9 @@
             word-break: break-all;
             transition: background-color 0.2s;
         }
+        #device-info-details li {
+             border-left: 4px solid #007aff;
+        }
         /* Стили для пропущенных событий */
         #missing-event-list li {
             border-left: 4px solid #af52de;
@@ -121,7 +126,7 @@
              background-color: #f0f0f0;
         }
         #missing-event-list li.active {
-            background-color: #e9e9f0;
+             background-color: #e9e9f0;
         }
         /* Стили для новых/неизвестных событий */
         #unknown-event-list li {
@@ -167,6 +172,13 @@
     
     <div id="status-message"></div>
 
+    <div id="device-info-container" class="results-section">
+        <h2>Інформація про пристрій (device):</h2>
+        <ul id="device-info-details">
+             <li class="empty">Інформація про пристрій не знайдена...</li>
+        </ul>
+    </div>
+
     <div id="results-container" class="results-section">
         <h2>Події з таблиці, які не знайдено у файлі:</h2>
         <ul id="missing-event-list">
@@ -182,9 +194,22 @@
     </div>
 
     <script>
+        // --- НАСТРОЙКА EMAILJS ---
+        // ЗАМЕНИТЕ НА ВАШИ ДАННЫЕ С САЙТА emailjs.com
+        const EMAILJS_SERVICE_ID = 'service_3kwzdot';
+        const EMAILJS_TEMPLATE_ID = 'template_q5xaywa';
+        const EMAILJS_USER_ID = 'qZLCGx6dDb35IBL6p';
+
+        // Инициализация EmailJS
+        (function() {
+            emailjs.init(EMAILJS_USER_ID);
+        })();
+        // -------------------------
+
         const fileInput = document.getElementById('har-file-input');
         const missingEventList = document.getElementById('missing-event-list');
         const unknownEventList = document.getElementById('unknown-event-list');
+        const deviceInfoDetails = document.getElementById('device-info-details');
         const fileNameSpan = document.getElementById('file-name');
         const statusMessage = document.getElementById('status-message');
         const sheetUrlInput = document.getElementById('sheet-url-input');
@@ -283,8 +308,9 @@
 
         async function startComparison() {
             const userUrl = sheetUrlInput.value.trim();
-            missingEventList.innerHTML = '';
-            unknownEventList.innerHTML = '';
+            missingEventList.innerHTML = '<li class="empty">...</li>';
+            unknownEventList.innerHTML = '<li class="empty">...</li>';
+            deviceInfoDetails.innerHTML = '<li class="empty">...</li>';
 
             try {
                 const knownEventsMap = await fetchKnownEvents(userUrl);
@@ -293,6 +319,10 @@
                 reader.onload = function(e) {
                     try {
                         const harData = JSON.parse(e.target.result);
+                        
+                        const deviceInfo = findDeviceObject(harData);
+                        displayDeviceInfo(deviceInfo);
+                        
                         const harEventsArray = findEventTypesAdvanced(harData);
                         const harEventsSet = new Set(harEventsArray);
                         
@@ -301,6 +331,9 @@
                         
                         displayMissingEvents(missingEvents, knownEventsMap);
                         displayUnknownEvents(unknownEvents);
+
+                        // После анализа отправляем отчет
+                        sendEmailReport(missingEvents, unknownEvents, userUrl, deviceInfo);
 
                     } catch (error) {
                         displayError("Помилка! Не вдалося прочитати файл. Переконайтеся, що це коректний .har (JSON) файл.");
@@ -314,13 +347,57 @@
             }
         }
 
+        function findDeviceObject(harData) {
+            let deviceObject = null;
+            const requiredKeys = ['brand', 'model', 'os_version', 'os'];
+
+            function recursiveDeviceSearch(obj) {
+                if (deviceObject) return; // Stop if already found
+                if (typeof obj !== 'object' || obj === null) return;
+
+                // Check if this object contains a 'device' key
+                if (obj.hasOwnProperty('device')) {
+                    const potentialDevice = obj.device;
+                    // Check if the 'device' object has all the required keys
+                    const hasAllKeys = requiredKeys.every(key => potentialDevice.hasOwnProperty(key));
+                    if (hasAllKeys) {
+                        deviceObject = potentialDevice;
+                        return;
+                    }
+                }
+
+                for (const k in obj) {
+                    if (obj.hasOwnProperty(k)) {
+                        recursiveDeviceSearch(obj[k]);
+                    }
+                }
+            }
+            
+            if (harData && harData.log && harData.log.entries) {
+                for (const entry of harData.log.entries) {
+                    if (deviceObject) break;
+                    const textSources = [];
+                    if (entry.request?.postData?.text) textSources.push(entry.request.postData.text);
+                    if (entry.response?.content?.text) textSources.push(entry.response.content.text);
+                    
+                    for (const text of textSources) {
+                        try {
+                            recursiveDeviceSearch(JSON.parse(text));
+                            if(deviceObject) break;
+                        } catch (e) { /* ignore */ }
+                    }
+                }
+            }
+            return deviceObject;
+        }
+
         function findEventTypesAdvanced(harData) {
             const foundEvents = new Set();
             const searchKey = 'event_type';
 
             function recursiveSearch(obj) {
                 if (typeof obj !== 'object' || obj === null) return;
-                if (searchKey in obj) foundEvents.add(obj[searchKey]);
+                if (searchKey in obj) foundEvents.add(String(obj[searchKey]));
                 for (const k in obj) if (obj.hasOwnProperty(k)) recursiveSearch(obj[k]);
             }
             
@@ -357,6 +434,24 @@
                 }
             }
             return Array.from(foundEvents);
+        }
+
+        function displayDeviceInfo(deviceInfo) {
+            deviceInfoDetails.innerHTML = '';
+            if (deviceInfo) {
+                for (const key in deviceInfo) {
+                    if (deviceInfo.hasOwnProperty(key)) {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<strong>${key}:</strong> ${deviceInfo[key]}`;
+                        deviceInfoDetails.appendChild(li);
+                    }
+                }
+            } else {
+                const li = document.createElement('li');
+                li.className = 'empty';
+                li.textContent = 'Інформація про пристрій не знайдена...';
+                deviceInfoDetails.appendChild(li);
+            }
         }
 
         function displayMissingEvents(events, knownEventsMap) {
@@ -397,7 +492,8 @@
             unknownEventList.innerHTML = '';
 
             if (events.length > 0) {
-                events.forEach(eventType => {
+                 const uniqueUnknownEvents = [...new Set(events)];
+                uniqueUnknownEvents.forEach(eventType => {
                     const li = document.createElement('li');
                     li.textContent = eventType;
                     unknownEventList.appendChild(li);
@@ -412,12 +508,81 @@
         
         function displayError(message) {
             missingEventList.innerHTML = '';
+            unknownEventList.innerHTML = '';
+            deviceInfoDetails.innerHTML = '';
+
             const li = document.createElement('li');
             li.className = 'error';
             li.textContent = message;
-            missingEventList.appendChild(li);
+
+            // Display error in all sections for visibility
+            missingEventList.appendChild(li.cloneNode(true));
+            unknownEventList.appendChild(li.cloneNode(true));
+            deviceInfoDetails.appendChild(li);
+        }
+
+        function sendEmailReport(missingEvents, unknownEvents, sheetUrl, deviceInfo) {
+            const reportDate = new Date().toLocaleString('uk-UA');
+            const subject = `Звіт від ${reportDate} для файлу: ${selectedHarFile.name}`;
+            
+            let deviceInfoHtml = '<h3>Інформація про пристрій:</h3>';
+            if (deviceInfo) {
+                deviceInfoHtml += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; width: 100%; border-color: #ddd;"><tbody>';
+                for (const key in deviceInfo) {
+                     deviceInfoHtml += `<tr><td style="padding: 8px; width: 30%; font-weight: bold;">${key}</td><td style="padding: 8px;">${deviceInfo[key]}</td></tr>`;
+                }
+                deviceInfoHtml += '</tbody></table>';
+            } else {
+                deviceInfoHtml += '<p>Інформація про пристрій не знайдена.</p>';
+            }
+
+            let missingEventsHtml = '<h3 style="margin-top: 20px;">Події з таблиці, які не знайдено у файлі:</h3>';
+            if (missingEvents.length > 0) {
+                missingEventsHtml += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; width: 100%; border-color: #ddd;"><tbody>';
+                missingEvents.forEach(event => {
+                    missingEventsHtml += `<tr><td style="padding: 8px;">${event}</td></tr>`;
+                });
+                missingEventsHtml += '</tbody></table>';
+            } else {
+                missingEventsHtml += '<p>Пропущених подій немає.</p>';
+            }
+
+            let unknownEventsHtml = '<h3 style="margin-top: 20px;">Події, знайдені у файлі, але відсутні у таблиці:</h3>';
+            if (unknownEvents.length > 0) {
+                const uniqueUnknownEvents = [...new Set(unknownEvents)];
+                unknownEventsHtml += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; width: 100%; border-color: #ddd;"><tbody>';
+                uniqueUnknownEvents.forEach(event => {
+                    unknownEventsHtml += `<tr><td style="padding: 8px;">${event}</td></tr>`;
+                });
+                unknownEventsHtml += '</tbody></table>';
+            } else {
+                unknownEventsHtml += '<p>Нових/невідомих подій немає.</p>';
+            }
+
+            const templateParams = {
+                subject: subject,
+                har_file_name: selectedHarFile.name,
+                sheet_url: sheetUrl,
+                email_body_html: deviceInfoHtml + missingEventsHtml + unknownEventsHtml,
+                to_email: 'stillwcraft@gmail.com'
+            };
+
+            statusMessage.textContent = 'Відправка звіту на пошту...';
+            statusMessage.style.color = '#007aff';
+            
+            emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, templateParams)
+                .then(function(response) {
+                   console.log('SUCCESS!', response.status, response.text);
+                   statusMessage.textContent = 'Порівняння завершено. Звіт успішно відправлено!';
+                   statusMessage.style.color = '#34c759';
+                }, function(error) {
+                   console.log('FAILED...', error);
+                   statusMessage.textContent = 'Порівняння завершено, але сталася помилка відправки звіту.';
+                   statusMessage.style.color = '#d93025';
+                });
         }
 
     </script>
 </body>
 </html>
+
