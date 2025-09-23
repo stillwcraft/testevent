@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
+  <style>
+    :root {
+      --primary-color: #007aff; --danger-color: #d93025; --warning-color: #ff9500;
+      --info-color: #af52de; --success-color: #34c759;
+      --border-color: #e0e0e0; --bg-light: #f9f9f9; --text-color: #333; --text-muted: #5f6368;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--text-color); }
+    .input-group { margin-bottom: 20px; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; }
+    input[type="url"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+    .controls-wrapper { display: flex; align-items: center; justify-content: center; gap: 20px; margin: 20px auto; flex-wrap: wrap; }
+    input[type="file"] { display: none; }
+    .file-upload-label { display: inline-block; padding: 12px 30px; border: 2px dashed var(--primary-color); border-radius: 8px; cursor: pointer; color: var(--primary-color); background-color: #f4f7ff; }
+    .compare-button { padding: 14px 30px; font-size: 16px; font-weight: 600; color: #fff; background-color: var(--primary-color); border: none; border-radius: 8px; cursor: pointer; min-width: 220px; text-align: center;}
+    .compare-button:disabled { background-color: #c7c7cc; cursor: not-allowed; }
+    .file-name { width: 100%; text-align: center; margin-top: 10px; font-style: italic; color: var(--text-muted); }
+    .status-message { text-align: center; margin-top: 15px; font-weight: bold; }
+    .results-section { margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px; }
+    h2 { margin: 0 0 10px 0; font-size: 18px; }
+    ul { list-style-type: none; padding: 0; }
+    li { background-color: var(--bg-light); padding: 10px 15px; border-radius: 5px; margin-bottom: 8px; }
+    .spoiler-content { display: none; padding: 8px; margin-top: 8px; background-color: #fff; border: 1px solid var(--border-color); border-radius: 4px; color: #555; font-size: 14px; }
+    #rh-device-info-details li { border-left: 4px solid var(--primary-color); }
+    #rh-missing-event-list li { border-left: 4px solid var(--info-color); cursor: pointer; }
+    #rh-unknown-event-list li { border-left: 4px solid var(--warning-color); }
+    .empty { color: var(--text-muted); border-left-color: #ccc; }
+    .error { color: var(--danger-color); font-weight: bold; border-left-color: var(--danger-color); }
+  </style>
+</head>
+<body>
+<div class="input-group">
+  <label for="rh-sheet-url-input">URL Google Таблиці:</label>
+  <input type="url" id="rh-sheet-url-input" placeholder="Вставте посилання на публічну Google Таблицю...">
+</div>
+<div class="controls-wrapper">
+  <label for="rh-har-file-input" class="file-upload-label">Оберіть .har файл</label>
+  <input type="file" id="rh-har-file-input" accept=".har">
+  <button id="rh-compare-button" class="compare-button" disabled>Зробити порівння</button>
+</div>
+<div id="rh-file-name" class="file-name">Файл не обрано</div>
+<div id="rh-status-message" class="status-message"></div>
+<div id="rh-device-info-container" class="results-section">
+  <h2>Інформація про пристрій та версію:</h2>
+  <ul id="rh-device-info-details"></ul>
+</div>
+<div class="results-section">
+  <h2>Події з таблиці, які не знайдено у файлі:</h2>
+  <ul id="rh-missing-event-list"></ul>
+</div>
+<div class="results-section">
+  <h2>Події, знайдені у файлі, але відсутні у таблиці:</h2>
+  <ul id="rh-unknown-event-list"></ul>
+</div>
+
+<script>
+  // --- RIDE HAILING FLOW SCRIPT ---
+  const EMAIL_CONFIG = { SERVICE_ID: 'service_3kwzdot', TEMPLATE_ID: 'template_q5xaywa', USER_ID: 'qZLCGx6dDb35IBL6p' };
+  emailjs.init(EMAIL_CONFIG.USER_ID);
+
+  const ui = {
+    fileInput: document.getElementById('rh-har-file-input'),
+    sheetUrlInput: document.getElementById('rh-sheet-url-input'),
+    compareButton: document.getElementById('rh-compare-button'),
+    fileNameSpan: document.getElementById('rh-file-name'),
+    statusMessage: document.getElementById('rh-status-message'),
+    deviceInfoList: document.getElementById('rh-device-info-details'),
+    missingEventList: document.getElementById('rh-missing-event-list'),
+    unknownEventList: document.getElementById('rh-unknown-event-list')
+  };
+  let selectedFile = null;
+
+  ui.fileInput.addEventListener('change', (e) => {
+    selectedFile = e.target.files[0];
+    ui.fileNameSpan.textContent = selectedFile ? `Обрано файл: ${selectedFile.name}` : 'Файл не обрано';
+    updateButtonState();
+  });
+  ui.sheetUrlInput.addEventListener('input', updateButtonState);
+  ui.compareButton.addEventListener('click', startComparison);
+
+  function updateButtonState() {
+    ui.compareButton.disabled = !(ui.sheetUrlInput.value.trim() !== '' && selectedFile);
+  }
+
+  async function fetchKnownEvents(url) {
+    const csvUrl = convertGoogleSheetUrlToCsvUrl(url);
+    if (!csvUrl) throw new Error('Невірний URL Google Таблиці.');
+    ui.statusMessage.textContent = 'Завантаження...';
+    const response = await fetch(csvUrl);
+    if (!response.ok) throw new Error(`Мережева помилка: ${response.statusText}`);
+    const csvText = await response.text();
+    const knownEventsMap = new Map();
+    csvText.split('\n').slice(1).forEach(row => {
+      const columns = row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(val => val.replace(/"/g, '')) || [];
+      if (columns[0]) knownEventsMap.set(columns[0].trim(), columns[1] || 'Опис не надано.');
+    });
+    return knownEventsMap;
+  }
+
+  function findEventTypes(harData) {
+    const foundEvents = new Set();
+    if (harData?.log?.entries) {
+      for (const entry of harData.log.entries) {
+        const postDataText = entry.request?.postData?.text;
+        if (postDataText) {
+          try {
+            const data = JSON.parse(postDataText);
+            const events = Array.isArray(data) ? data : [data];
+            events.forEach(event => { if (event.event_type) foundEvents.add(event.event_type); });
+          } catch (e) {}
+        }
+      }
+    }
+    return Array.from(foundEvents);
+  }
+
+  async function startComparison() {
+    [ui.deviceInfoList, ui.missingEventList, ui.unknownEventList].forEach(el => el.innerHTML = '');
+    ui.compareButton.textContent = 'Аналіз...';
+    ui.compareButton.disabled = true;
+    try {
+      const knownEventsMap = await fetchKnownEvents(ui.sheetUrlInput.value.trim());
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const harData = JSON.parse(e.target.result);
+          const deviceInfo = findDeviceObject(harData);
+          const appVersion = findAppVersion(harData);
+          const harEvents = findEventTypes(harData);
+          const harEventsSet = new Set(harEvents);
+
+          const missing = Array.from(knownEventsMap.keys()).filter(evt => !harEventsSet.has(evt));
+          const unknown = [...new Set(harEvents.filter(evt => !knownEventsMap.has(evt)))];
+
+          displayResults(deviceInfo, appVersion, missing, unknown, knownEventsMap);
+
+          const lastCheckData = {
+            missingCount: missing.length,
+            unknownCount: unknown.length,
+            harFileName: selectedFile.name,
+            os: deviceInfo ? deviceInfo.os : 'N/A',
+            version: appVersion || 'N/A',
+            checkDate: new Date().toLocaleString('uk-UA')
+          };
+          window.parent.postMessage({ type: 'analysisComplete', payload: lastCheckData }, '*');
+
+          await sendEmailReport(deviceInfo, appVersion, missing, unknown, ui.sheetUrlInput.value.trim(), selectedFile.name);
+          ui.statusMessage.textContent = 'Порівняння завершено. Звіт успішно відправлено!';
+          ui.statusMessage.style.color = 'var(--success-color)';
+        } catch (err) {
+          displayError("Помилка! Не вдалося прочитати файл. Переконайтеся, що це коректний .har (JSON) файл.");
+        } finally {
+          ui.compareButton.textContent = 'Зробити порівння';
+          updateButtonState();
+        }
+      };
+      reader.readAsText(selectedFile);
+    } catch (err) {
+      ui.statusMessage.textContent = `Помилка: ${err.message}`;
+      ui.statusMessage.style.color = 'var(--danger-color)';
+      ui.compareButton.textContent = 'Зробити порівння';
+      updateButtonState();
+    }
+  }
+
+  function displayResults(device, version, missing, unknown, map) {
+    ui.deviceInfoList.innerHTML = '';
+    ui.missingEventList.innerHTML = '';
+    ui.unknownEventList.innerHTML = '';
+
+    if (device) Object.entries(device).forEach(([k,v]) => ui.deviceInfoList.innerHTML += `<li><strong>${k}:</strong> ${v}</li>`);
+    if (version) ui.deviceInfoList.innerHTML += `<li><strong>version:</strong> ${version}</li>`;
+    if (!device && !version) ui.deviceInfoList.innerHTML = `<li class="empty">Інформація не знайдена.</li>`;
+
+    if (missing.length > 0) {
+      missing.sort().forEach(evt => {
+        const li = document.createElement('li');
+        li.innerHTML = `<span>${evt}</span><div class="spoiler-content">${map.get(evt)}</div>`;
+        li.addEventListener('click', () => {
+          const spoiler = li.querySelector('.spoiler-content');
+          spoiler.style.display = spoiler.style.display === 'block' ? 'none' : 'block';
+        });
+        ui.missingEventList.appendChild(li);
+      });
+    } else { ui.missingEventList.innerHTML = `<li class="empty">Пропущених подій немає.</li>`; }
+
+    if (unknown.length > 0) {
+      unknown.sort().forEach(evt => ui.unknownEventList.innerHTML += `<li>${evt}</li>`);
+    } else { ui.unknownEventList.innerHTML = `<li class="empty">Нових/невідомих подій не знайдено.</li>`; }
+  }
+
+  function displayError(message) {
+    [ui.deviceInfoList, ui.missingEventList, ui.unknownEventList].forEach(el => {
+      el.innerHTML = `<li class="error">${message}</li>`;
+    });
+  }
+
+  async function sendEmailReport(device, version, missing, unknown, sheetUrl, fileName) {
+    let deviceInfoHtml = '<h3>Інформація про пристрій:</h3>';
+    if (device || version) {
+      deviceInfoHtml += '<ul>';
+      if(device) Object.entries(device).forEach(([k,v]) => deviceInfoHtml += `<li><strong>${k}:</strong> ${v}</li>`);
+      if(version) deviceInfoHtml += `<li><strong>version:</strong> ${version}</li>`;
+      deviceInfoHtml += '</ul>';
+    } else { deviceInfoHtml += '<p>Не знайдена.</p>'; }
+
+    let summaryHtml = `<h3>Результати:</h3><ul>
+                <li><strong>Пропущено подій:</strong> ${missing.length}</li>
+                <li><strong>Невідомих подій:</strong> ${unknown.length}</li>
+            </ul>`;
+
+    const templateParams = {
+      subject: `RH Звіт від ${new Date().toLocaleString('uk-UA')} для файлу: ${fileName}`,
+      har_file_name: fileName, sheet_url: sheetUrl,
+      email_body_html: deviceInfoHtml + summaryHtml,
+      to_email: 'stillwcraft@gmail.com'
+    };
+    await emailjs.send(EMAIL_CONFIG.SERVICE_ID, EMAIL_CONFIG.TEMPLATE_ID, templateParams);
+  }
+
+  // SHARED HELPERS (must be self-contained)
+  function convertGoogleSheetUrlToCsvUrl(url) {
+    const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/); if (!match || !match[1]) return null; const sheetId = match[1]; const gidMatch = url.match(/[#&]gid=(\d+)/); let csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`; if (gidMatch && gidMatch[1]) { csvUrl += `&gid=${gidMatch[1]}`; } return csvUrl;
+  }
+  function findDeviceObject(harData) {
+    let deviceObject = null; const requiredKeys = ['brand', 'model', 'os_version', 'os'];
+    function r(obj) { if (deviceObject || typeof obj !== 'object' || obj === null) return; if (obj.device && requiredKeys.every(k => obj.device.hasOwnProperty(k))) { deviceObject = obj.device; return; } for (const k in obj) if (obj.hasOwnProperty(k)) r(obj[k]); }
+    if (harData?.log?.entries) { for (const entry of harData.log.entries) { if (deviceObject) break; const sources = [entry.request?.postData?.text, entry.response?.content?.text].filter(Boolean); for (const text of sources) try { r(JSON.parse(text)); if (deviceObject) break; } catch (e) { } } } return deviceObject;
+  }
+  function findAppVersion(harData) {
+    let appVersion = null;
+    function r(obj) { if (appVersion || typeof obj !== 'object' || obj === null) return; if (obj.app?.version) { appVersion = obj.app.version; return; } if (obj.event_type === 'app' && obj.version) { appVersion = obj.version; return; } for (const k in obj) if (obj.hasOwnProperty(k)) r(obj[k]); }
+    if (harData?.log?.entries) { for (const entry of harData.log.entries) { if (appVersion) break; const sources = [entry.request?.postData?.text, entry.response?.content?.text].filter(Boolean); for (const text of sources) try { r(JSON.parse(text)); if (appVersion) break; } catch (e) { } } } return appVersion;
+  }
+</script>
+</body>
+</html>
+
