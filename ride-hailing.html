@@ -21,16 +21,31 @@
     .compare-button:disabled { background-color: #c7c7cc; cursor: not-allowed; }
     .file-name { width: 100%; text-align: center; margin-top: 10px; font-style: italic; color: var(--text-muted); }
     .status-message { text-align: center; margin-top: 15px; font-weight: bold; }
-    .results-section { margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px; }
-    h2 { margin: 0 0 10px 0; font-size: 18px; }
+    .results-section { margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; }
+    h2 { color: #1a1a1a; }
     ul { list-style-type: none; padding: 0; }
-    li { background-color: var(--bg-light); padding: 10px 15px; border-radius: 5px; margin-bottom: 8px; }
-    .spoiler-content { display: none; padding: 8px; margin-top: 8px; background-color: #fff; border: 1px solid var(--border-color); border-radius: 4px; color: #555; font-size: 14px; }
+    li {
+      background-color: var(--bg-light); padding: 10px 15px; border-radius: 5px; margin-bottom: 8px;
+      display: flex; justify-content: space-between; align-items: center; gap: 15px;
+    }
+    .event-details { flex-grow: 1; }
+    .event-count {
+      background-color: #eef1f4; color: var(--text-muted); padding: 3px 8px; border-radius: 12px;
+      font-size: 0.8em; font-weight: 600; white-space: nowrap;
+    }
     #rh-device-info-details li { border-left: 4px solid var(--primary-color); }
-    #rh-missing-event-list li { border-left: 4px solid var(--info-color); cursor: pointer; }
+    #rh-missing-event-list li { border-left: 4px solid var(--info-color); }
     #rh-unknown-event-list li { border-left: 4px solid var(--warning-color); }
-    .empty { color: var(--text-muted); border-left-color: #ccc; }
+    .event-details { cursor: pointer; }
+    li.active { background-color: #e9e9f0; }
+    .spoiler-content {
+      display: none; padding: 10px; margin-top: 10px; background-color: #fff;
+      border: 1px solid var(--border-color); border-radius: 4px; color: #555;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace; font-size: 0.9em;
+    }
+    .spoiler-content pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
     .error { color: var(--danger-color); font-weight: bold; border-left-color: var(--danger-color); }
+    .empty { color: var(--text-muted); border-left-color: #ccc; }
   </style>
 </head>
 <body>
@@ -59,7 +74,7 @@
 </div>
 
 <script>
-  // --- RIDE HAILING FLOW SCRIPT ---
+  // --- RIDE HAILING FLOW SCRIPT (Updated) ---
   const EMAIL_CONFIG = { SERVICE_ID: 'service_3kwzdot', TEMPLATE_ID: 'template_q5xaywa', USER_ID: 'qZLCGx6dDb35IBL6p' };
   emailjs.init(EMAIL_CONFIG.USER_ID);
 
@@ -102,25 +117,41 @@
     return knownEventsMap;
   }
 
-  function findEventTypes(harData) {
-    const foundEvents = new Set();
+  function findAllEvents(harData) {
+    const foundEventStrings = [];
+    const foundEventObjects = [];
+    const searchKey = 'event_type';
+
+    function recursiveSearch(obj) {
+      if (typeof obj !== 'object' || obj === null) return;
+      if (searchKey in obj) {
+        foundEventStrings.push(String(obj[searchKey]));
+        foundEventObjects.push(obj);
+      }
+      for (const k in obj) if (obj.hasOwnProperty(k)) recursiveSearch(obj[k]);
+    }
+
     if (harData?.log?.entries) {
       for (const entry of harData.log.entries) {
-        const postDataText = entry.request?.postData?.text;
-        if (postDataText) {
+        if (entry.request?.url) {
           try {
-            const data = JSON.parse(postDataText);
-            const events = Array.isArray(data) ? data : [data];
-            events.forEach(event => { if (event.event_type) foundEvents.add(event.event_type); });
-          } catch (e) {}
+            const url = new URL(entry.request.url);
+            if (url.searchParams.has(searchKey)) foundEventStrings.push(url.searchParams.get(searchKey));
+          } catch(e) {}
+        }
+        if (entry.request?.postData?.text) {
+          try { recursiveSearch(JSON.parse(entry.request.postData.text)); } catch (e) {}
+        }
+        if (entry.response?.content?.text) {
+          try { recursiveSearch(JSON.parse(entry.response.content.text)); } catch (e) {}
         }
       }
     }
-    return Array.from(foundEvents);
+    return { allStrings: foundEventStrings, allObjects: foundEventObjects };
   }
 
   async function startComparison() {
-    [ui.deviceInfoList, ui.missingEventList, ui.unknownEventList].forEach(el => el.innerHTML = '');
+    [ui.deviceInfoList, ui.missingEventList, ui.unknownEventList].forEach(el => el.innerHTML = '<li class="empty">...</li>');
     ui.compareButton.textContent = 'Аналіз...';
     ui.compareButton.disabled = true;
     try {
@@ -131,17 +162,21 @@
           const harData = JSON.parse(e.target.result);
           const deviceInfo = findDeviceObject(harData);
           const appVersion = findAppVersion(harData);
-          const harEvents = findEventTypes(harData);
-          const harEventsSet = new Set(harEvents);
+          displayDeviceInfo(deviceInfo, appVersion);
+
+          const { allStrings, allObjects } = findAllEvents(harData);
+          const eventCounts = allStrings.reduce((acc, event) => ({ ...acc, [event]: (acc[event] || 0) + 1 }), {});
+          const harEventsSet = new Set(allStrings);
 
           const missing = Array.from(knownEventsMap.keys()).filter(evt => !harEventsSet.has(evt));
-          const unknown = [...new Set(harEvents.filter(evt => !knownEventsMap.has(evt)))];
+          const unknownStrings = allStrings.filter(evt => !knownEventsMap.has(evt));
 
-          displayResults(deviceInfo, appVersion, missing, unknown, knownEventsMap);
+          displayMissingEvents(missing, knownEventsMap, eventCounts);
+          displayUnknownEvents(unknownStrings, eventCounts, allObjects);
 
           const lastCheckData = {
             missingCount: missing.length,
-            unknownCount: unknown.length,
+            unknownCount: [...new Set(unknownStrings)].length,
             harFileName: selectedFile.name,
             os: deviceInfo ? deviceInfo.os : 'N/A',
             version: appVersion || 'N/A',
@@ -149,14 +184,16 @@
           };
           window.parent.postMessage({ type: 'analysisComplete', payload: lastCheckData }, '*');
 
-          await sendEmailReport(deviceInfo, appVersion, missing, unknown, ui.sheetUrlInput.value.trim(), selectedFile.name);
+          await sendEmailReport(deviceInfo, appVersion, missing, [...new Set(unknownStrings)], ui.sheetUrlInput.value.trim(), selectedFile.name);
           ui.statusMessage.textContent = 'Порівняння завершено. Звіт успішно відправлено!';
           ui.statusMessage.style.color = 'var(--success-color)';
         } catch (err) {
           displayError("Помилка! Не вдалося прочитати файл. Переконайтеся, що це коректний .har (JSON) файл.");
+          console.error(err);
         } finally {
           ui.compareButton.textContent = 'Зробити порівння';
           updateButtonState();
+          window.parent.postMessage({ type: 'resize' }, '*');
         }
       };
       reader.readAsText(selectedFile);
@@ -168,30 +205,68 @@
     }
   }
 
-  function displayResults(device, version, missing, unknown, map) {
+  function displayDeviceInfo(deviceInfo, appVersion) {
     ui.deviceInfoList.innerHTML = '';
+    let infoFound = false;
+    if (deviceInfo) {
+      infoFound = true;
+      Object.entries(deviceInfo).forEach(([key, value]) => ui.deviceInfoList.innerHTML += `<li><strong>${key}:</strong> ${value}</li>`);
+    }
+    if (appVersion) {
+      infoFound = true;
+      ui.deviceInfoList.innerHTML += `<li><strong>version:</strong> ${appVersion}</li>`;
+    }
+    if (!infoFound) ui.deviceInfoList.innerHTML = `<li class="empty">Інформація не знайдена.</li>`;
+  }
+
+  function displayMissingEvents(events, knownEventsMap, eventCounts) {
     ui.missingEventList.innerHTML = '';
-    ui.unknownEventList.innerHTML = '';
-
-    if (device) Object.entries(device).forEach(([k,v]) => ui.deviceInfoList.innerHTML += `<li><strong>${k}:</strong> ${v}</li>`);
-    if (version) ui.deviceInfoList.innerHTML += `<li><strong>version:</strong> ${version}</li>`;
-    if (!device && !version) ui.deviceInfoList.innerHTML = `<li class="empty">Інформація не знайдена.</li>`;
-
-    if (missing.length > 0) {
-      missing.sort().forEach(evt => {
+    events.sort();
+    if (events.length > 0) {
+      events.forEach(eventType => {
         const li = document.createElement('li');
-        li.innerHTML = `<span>${evt}</span><div class="spoiler-content">${map.get(evt)}</div>`;
-        li.addEventListener('click', () => {
+        const description = knownEventsMap.get(eventType) || 'Опис не надано.';
+        li.innerHTML = `
+                        <div class="event-details">
+                            <span>${eventType}</span>
+                            <div class="spoiler-content">${description}</div>
+                        </div>
+                        <span class="event-count">x0</span>`;
+        li.querySelector('.event-details').addEventListener('click', () => {
           const spoiler = li.querySelector('.spoiler-content');
           spoiler.style.display = spoiler.style.display === 'block' ? 'none' : 'block';
+          li.classList.toggle('active');
+          window.parent.postMessage({ type: 'resize' }, '*');
         });
         ui.missingEventList.appendChild(li);
       });
-    } else { ui.missingEventList.innerHTML = `<li class="empty">Пропущених подій немає.</li>`; }
+    } else { ui.missingEventList.innerHTML = '<li class="empty">Пропущених подій немає.</li>'; }
+  }
 
-    if (unknown.length > 0) {
-      unknown.sort().forEach(evt => ui.unknownEventList.innerHTML += `<li>${evt}</li>`);
-    } else { ui.unknownEventList.innerHTML = `<li class="empty">Нових/невідомих подій не знайдено.</li>`; }
+  function displayUnknownEvents(events, eventCounts, allEventObjects) {
+    ui.unknownEventList.innerHTML = '';
+    const uniqueUnknownEvents = [...new Set(events)];
+    uniqueUnknownEvents.sort();
+    if (uniqueUnknownEvents.length > 0) {
+      uniqueUnknownEvents.forEach(eventType => {
+        const li = document.createElement('li');
+        const matchingObjects = allEventObjects.filter(obj => obj.event_type === eventType);
+        const spoilerHtml = matchingObjects.map(obj => `<pre>${JSON.stringify(obj, null, 2)}</pre>`).join('<hr>');
+        li.innerHTML = `
+                        <div class="event-details">
+                            <span>${eventType}</span>
+                            <div class="spoiler-content">${spoilerHtml}</div>
+                        </div>
+                        <span class="event-count">x${eventCounts[eventType] || 0}</span>`;
+        li.querySelector('.event-details').addEventListener('click', () => {
+          const spoiler = li.querySelector('.spoiler-content');
+          spoiler.style.display = spoiler.style.display === 'block' ? 'none' : 'block';
+          li.classList.toggle('active');
+          window.parent.postMessage({ type: 'resize' }, '*');
+        });
+        ui.unknownEventList.appendChild(li);
+      });
+    } else { ui.unknownEventList.innerHTML = '<li class="empty">Нових/невідомих подій немає.</li>'; }
   }
 
   function displayError(message) {
@@ -208,12 +283,7 @@
       if(version) deviceInfoHtml += `<li><strong>version:</strong> ${version}</li>`;
       deviceInfoHtml += '</ul>';
     } else { deviceInfoHtml += '<p>Не знайдена.</p>'; }
-
-    let summaryHtml = `<h3>Результати:</h3><ul>
-                <li><strong>Пропущено подій:</strong> ${missing.length}</li>
-                <li><strong>Невідомих подій:</strong> ${unknown.length}</li>
-            </ul>`;
-
+    let summaryHtml = `<h3>Результати:</h3><ul><li><strong>Пропущено подій:</strong> ${missing.length}</li><li><strong>Невідомих подій:</strong> ${unknown.length}</li></ul>`;
     const templateParams = {
       subject: `RH Звіт від ${new Date().toLocaleString('uk-UA')} для файлу: ${fileName}`,
       har_file_name: fileName, sheet_url: sheetUrl,
@@ -223,7 +293,6 @@
     await emailjs.send(EMAIL_CONFIG.SERVICE_ID, EMAIL_CONFIG.TEMPLATE_ID, templateParams);
   }
 
-  // SHARED HELPERS (must be self-contained)
   function convertGoogleSheetUrlToCsvUrl(url) {
     const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/); if (!match || !match[1]) return null; const sheetId = match[1]; const gidMatch = url.match(/[#&]gid=(\d+)/); let csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`; if (gidMatch && gidMatch[1]) { csvUrl += `&gid=${gidMatch[1]}`; } return csvUrl;
   }
