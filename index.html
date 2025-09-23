@@ -79,9 +79,10 @@
         }
         iframe {
             width: 100%;
-            height: 1100px; 
+            height: 1100px;
             border: none;
             display: block;
+            transition: height 0.3s ease-in-out;
         }
         #sidebar h2 {
             margin-top: 0;
@@ -104,102 +105,103 @@
     </style>
 </head>
 <body>
-    <div id="page-wrapper">
-        <main id="main-content" class="card">
-            <h1>HAR File Analyzer</h1>
-            <div class="tabs">
-                <button class="tab-link active" data-tab="ride-hailing.html">Ride Hailing flow</button>
-                <button class="tab-link" data-tab="delivery.html">Delivery Flow</button>
-            </div>
-            <div class="iframe-container">
-                <iframe src="ride-hailing.html" id="content-iframe" scrolling="no" onload="resizeIframe(this)"></iframe>
-            </div>
-        </main>
-        <aside id="sidebar">
-            <div class="card">
-                <h2>Остання перевірка</h2>
-                <ul id="last-check-details">
-                    <li class="empty">Завантаження...</li>
-                </ul>
-            </div>
-        </aside>
-    </div>
+<div id="page-wrapper">
+    <main id="main-content" class="card">
+        <h1>HAR File Analyzer</h1>
+        <div class="tabs">
+            <button class="tab-link active" data-tab="ride-hailing.html">Ride Hailing flow</button>
+            <button class="tab-link" data-tab="delivery.html">Delivery Flow</button>
+        </div>
+        <div class="iframe-container">
+            <iframe src="ride-hailing.html" id="content-iframe" scrolling="no" onload="resizeIframe(this)"></iframe>
+        </div>
+    </main>
+    <aside id="sidebar">
+        <div class="card">
+            <h2>Остання перевірка</h2>
+            <ul id="last-check-details">
+                <li class="empty">Завантаження...</li>
+            </ul>
+        </div>
+    </aside>
+</div>
 
-    <script>
-        const SHARED_DATA_URL = 'https://api.npoint.io/91e7451f1f2e5a05a1f8';
-        const lastCheckDetails = document.getElementById('last-check-details');
-        const iframe = document.getElementById('content-iframe');
+<script>
+    const SHARED_DATA_URL = 'https://api.npoint.io/91e7451f1f2e5a05a1f8';
+    const lastCheckDetails = document.getElementById('last-check-details');
+    const iframe = document.getElementById('content-iframe');
 
-        document.addEventListener('DOMContentLoaded', () => {
-            loadLastCheckInfo();
-            setupTabs();
-            window.addEventListener('message', handleIframeMessage);
+    document.addEventListener('DOMContentLoaded', () => {
+        loadLastCheckInfo();
+        setupTabs();
+        window.addEventListener('message', handleIframeMessage);
+    });
+
+    function setupTabs() {
+        const tabsContainer = document.querySelector('.tabs');
+        tabsContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('tab-link')) {
+                document.querySelectorAll('.tab-link').forEach(tab => tab.classList.remove('active'));
+                e.target.classList.add('active');
+                iframe.src = e.target.dataset.tab;
+            }
         });
-        
-        function setupTabs() {
-            const tabsContainer = document.querySelector('.tabs');
-            tabsContainer.addEventListener('click', (e) => {
-                if (e.target.classList.contains('tab-link')) {
-                    document.querySelectorAll('.tab-link').forEach(tab => tab.classList.remove('active'));
-                    e.target.classList.add('active');
-                    iframe.src = e.target.dataset.tab;
+    }
+
+    function resizeIframe(iframeEl) {
+        // Give the content a moment to render before resizing
+        setTimeout(() => {
+            if (iframeEl.contentWindow && iframeEl.contentWindow.document.body) {
+                const newHeight = iframeEl.contentWindow.document.body.scrollHeight + 50;
+                iframeEl.style.height = newHeight + 'px';
+            }
+        }, 100);
+    }
+
+    function handleIframeMessage(event) {
+        const { type, payload } = event.data;
+        if (type === 'resize') {
+            resizeIframe(iframe);
+        } else if (type === 'analysisComplete') {
+            saveAndDisplayLastCheckInfo(payload);
+        }
+    }
+
+    async function loadLastCheckInfo() {
+        if (!SHARED_DATA_URL.startsWith('https://')) return;
+        try {
+            const response = await fetch(SHARED_DATA_URL);
+            if (response.ok) {
+                const savedData = await response.json();
+                if (savedData && Object.keys(savedData).length > 0) {
+                    displayLastCheckInfo(savedData);
+                } else {
+                    lastCheckDetails.innerHTML = '<li class="empty">Ще не було перевірок.</li>';
                 }
+            }
+        } catch (error) {
+            console.error('Error loading shared data:', error);
+            lastCheckDetails.innerHTML = '<li class="empty">Не вдалося завантажити дані.</li>';
+        }
+    }
+
+    async function saveAndDisplayLastCheckInfo(data) {
+        displayLastCheckInfo(data);
+        if (!SHARED_DATA_URL.startsWith('https://')) return;
+        try {
+            await fetch(SHARED_DATA_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
             });
+        } catch (error) {
+            console.error('Error saving shared data:', error);
         }
-        
-        function resizeIframe(iframeEl) {
-            // Give the content a moment to render before resizing
-            setTimeout(() => {
-                if (iframeEl.contentWindow && iframeEl.contentWindow.document.body) {
-                    iframeEl.style.height = iframeEl.contentWindow.document.body.scrollHeight + 50 + 'px';
-                }
-            }, 100);
-        }
-        
-        window.addEventListener('message', (event) => {
-            const { type, payload } = event.data;
-             if (type === 'resize') {
-                resizeIframe(iframe);
-            } else if (type === 'analysisComplete') {
-                saveAndDisplayLastCheckInfo(payload);
-            }
-        });
+    }
 
-        async function loadLastCheckInfo() {
-            if (!SHARED_DATA_URL.startsWith('https://')) return;
-            try {
-                const response = await fetch(SHARED_DATA_URL);
-                if (response.ok) {
-                    const savedData = await response.json();
-                    if (savedData && Object.keys(savedData).length > 0) {
-                        displayLastCheckInfo(savedData);
-                    } else {
-                         lastCheckDetails.innerHTML = '<li class="empty">Ще не було перевірок.</li>';
-                    }
-                }
-            } catch (error) {
-                console.error('Error loading shared data:', error);
-                lastCheckDetails.innerHTML = '<li class="empty">Не вдалося завантажити дані.</li>';
-            }
-        }
-
-        async function saveAndDisplayLastCheckInfo(data) {
-            displayLastCheckInfo(data); 
-            if (!SHARED_DATA_URL.startsWith('https://')) return;
-            try {
-                await fetch(SHARED_DATA_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-            } catch (error) {
-                console.error('Error saving shared data:', error);
-            }
-        }
-
-        function displayLastCheckInfo(data) {
-            if (data) {
-                lastCheckDetails.innerHTML = `
+    function displayLastCheckInfo(data) {
+        if (data) {
+            lastCheckDetails.innerHTML = `
                     <li><strong>Дата:</strong> ${data.checkDate}</li>
                     <li><strong>Файл:</strong> ${data.harFileName}</li>
                     <li><strong>OS:</strong> ${data.os}</li>
@@ -207,11 +209,11 @@
                     <li><strong>Пропущено:</strong> ${data.missingCount}</li>
                     <li><strong>Невідомо:</strong> ${data.unknownCount}</li>
                 `;
-            } else {
-                lastCheckDetails.innerHTML = '<li class="empty">Ще не було перевірок.</li>';
-            }
+        } else {
+            lastCheckDetails.innerHTML = '<li class="empty">Ще не було перевірок.</li>';
         }
-    </script>
+    }
+</script>
 </body>
 </html>
 
