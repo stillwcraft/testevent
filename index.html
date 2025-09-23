@@ -132,22 +132,45 @@
             margin-bottom: 8px;
             word-break: break-all;
             transition: background-color 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+        }
+        .event-details {
+            flex-grow: 1;
+        }
+        .event-count {
+            background-color: #eef1f4;
+            color: #5f6368;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 600;
+            white-space: nowrap;
         }
         #device-info-details li, #last-check-details li {
              border-left: 4px solid #007aff;
         }
+        #missing-event-list .event-details, #unknown-event-list .event-details {
+            cursor: pointer;
+        }
         #missing-event-list li {
             border-left: 4px solid #af52de;
-            cursor: pointer;
+            cursor: default;
         }
         #missing-event-list li:hover {
              background-color: #f0f0f0;
         }
-        #missing-event-list li.active {
+        #missing-event-list li.active, #unknown-event-list li.active {
              background-color: #e9e9f0;
         }
         #unknown-event-list li {
              border-left: 4px solid #ff9500;
+             cursor: default;
+        }
+        #unknown-event-list li:hover {
+             background-color: #f0f0f0;
         }
         .spoiler-content {
             display: none;
@@ -157,6 +180,13 @@
             border: 1px solid #e0e0e0;
             border-radius: 4px;
             color: #555;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 0.9em;
+        }
+        .spoiler-content pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-all;
         }
         .error {
             color: #d93025;
@@ -358,24 +388,29 @@
                         const appVersion = findAppVersion(harData);
                         displayDeviceInfo(deviceInfo, appVersion);
                         
-                        const harEventsArray = findEventTypesAdvanced(harData);
-                        const harEventsSet = new Set(harEventsArray);
+                        const { allStrings, allObjects } = findAllEvents(harData);
+
+                        const eventCounts = allStrings.reduce((acc, event) => {
+                            acc[event] = (acc[event] || 0) + 1;
+                            return acc;
+                        }, {});
+                        const harEventsSet = new Set(allStrings);
                         
                         const missingEvents = Array.from(knownEventsMap.keys()).filter(event => !harEventsSet.has(event));
-                        const unknownEvents = harEventsArray.filter(event => !knownEventsMap.has(event));
+                        const unknownEventStrings = allStrings.filter(event => !knownEventsMap.has(event));
                         
                         displayMissingEvents(missingEvents, knownEventsMap);
-                        displayUnknownEvents(unknownEvents);
+                        displayUnknownEvents(unknownEventStrings, eventCounts, allObjects);
 
                         saveAndDisplayLastCheckInfo({
                             missingCount: missingEvents.length,
-                            unknownCount: [...new Set(unknownEvents)].length,
+                            unknownCount: [...new Set(unknownEventStrings)].length,
                             harFileName: selectedHarFile.name,
                             os: deviceInfo ? deviceInfo.os : 'Не знайдено',
                             version: appVersion || 'Не знайдено'
                         });
 
-                        sendEmailReport(missingEvents, unknownEvents, userUrl, deviceInfo, appVersion);
+                        sendEmailReport(missingEvents, unknownEventStrings, userUrl, deviceInfo, appVersion);
 
                     } catch (error) {
                         displayError("Помилка! Не вдалося прочитати файл. Переконайтеся, що це коректний .har (JSON) файл.");
@@ -465,20 +500,24 @@
             return appVersion;
         }
 
-        function findEventTypesAdvanced(harData) {
-            const foundEvents = new Set();
+        function findAllEvents(harData) {
+            const foundEventStrings = [];
+            const foundEventObjects = [];
             const searchKey = 'event_type';
 
             function recursiveSearch(obj) {
                 if (typeof obj !== 'object' || obj === null) return;
-                if (searchKey in obj) foundEvents.add(String(obj[searchKey]));
+                if (searchKey in obj) {
+                    foundEventStrings.push(String(obj[searchKey]));
+                    foundEventObjects.push(obj);
+                }
                 for (const k in obj) if (obj.hasOwnProperty(k)) recursiveSearch(obj[k]);
             }
             
             function parseUrlEncoded(text) {
                 try {
                     const params = new URLSearchParams(text);
-                    if (params.has(searchKey)) foundEvents.add(params.get(searchKey));
+                    if (params.has(searchKey)) foundEventStrings.push(params.get(searchKey));
                 } catch(e) { /* Игнорируем */ }
             }
 
@@ -487,7 +526,7 @@
                     if (entry.request?.url) {
                         try {
                             const url = new URL(entry.request.url);
-                            if (url.searchParams.has(searchKey)) foundEvents.add(url.searchParams.get(searchKey));
+                            if (url.searchParams.has(searchKey)) foundEventStrings.push(url.searchParams.get(searchKey));
                         } catch(e) { /* Игнорируем */ }
                     }
 
@@ -507,7 +546,7 @@
                     }
                 }
             }
-            return Array.from(foundEvents);
+            return { allStrings: foundEventStrings, allObjects: foundEventObjects };
         }
 
         function displayDeviceInfo(deviceInfo, appVersion) {
@@ -552,19 +591,20 @@
             if (events.length > 0) {
                 events.forEach(eventType => {
                     const li = document.createElement('li');
-                    
-                    const eventNameSpan = document.createElement('span');
-                    eventNameSpan.textContent = eventType;
-                    li.appendChild(eventNameSpan);
-                    
                     const description = knownEventsMap.get(eventType) || 'Опис для цієї події не знайдено в таблиці.';
                     
-                    const spoilerDiv = document.createElement('div');
-                    spoilerDiv.className = 'spoiler-content';
-                    spoilerDiv.textContent = description;
-                    li.appendChild(spoilerDiv);
+                    li.innerHTML = `
+                        <div class="event-details">
+                            <span>${eventType}</span>
+                            <div class="spoiler-content">${description}</div>
+                        </div>
+                        <span class="event-count">x0</span>
+                    `;
                     
-                    li.addEventListener('click', () => {
+                    const spoilerDiv = li.querySelector('.spoiler-content');
+                    const eventDetailsDiv = li.querySelector('.event-details');
+
+                    eventDetailsDiv.addEventListener('click', () => {
                         const isVisible = spoilerDiv.style.display === 'block';
                         spoilerDiv.style.display = isVisible ? 'none' : 'block';
                         li.classList.toggle('active', !isVisible);
@@ -580,7 +620,7 @@
             }
         }
 
-        function displayUnknownEvents(events) {
+        function displayUnknownEvents(events, eventCounts, allEventObjects) {
             unknownEventList.innerHTML = '';
             const uniqueUnknownEvents = [...new Set(events)];
 
@@ -594,8 +634,31 @@
 
             if (uniqueUnknownEvents.length > 0) {
                 uniqueUnknownEvents.forEach(eventType => {
+                    const count = eventCounts[eventType] || 0;
                     const li = document.createElement('li');
-                    li.textContent = eventType;
+                    
+                    const matchingObjects = allEventObjects.filter(obj => obj.event_type === eventType);
+                    const spoilerHtml = matchingObjects.map(obj => 
+                        `<pre>${JSON.stringify(obj, null, 2)}</pre>`
+                    ).join('<hr style="margin: 10px 0; border: none; border-top: 1px solid #e0e0e0;">');
+
+                    li.innerHTML = `
+                        <div class="event-details">
+                            <span>${eventType}</span>
+                            <div class="spoiler-content">${spoilerHtml}</div>
+                        </div>
+                        <span class="event-count">x${count}</span>
+                    `;
+                    
+                    const spoilerDiv = li.querySelector('.spoiler-content');
+                    const eventDetailsDiv = li.querySelector('.event-details');
+                    
+                    eventDetailsDiv.addEventListener('click', () => {
+                        const isVisible = spoilerDiv.style.display === 'block';
+                        spoilerDiv.style.display = isVisible ? 'none' : 'block';
+                        li.classList.toggle('active', !isVisible);
+                    });
+
                     unknownEventList.appendChild(li);
                 });
             } else {
