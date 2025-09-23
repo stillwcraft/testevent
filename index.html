@@ -11,16 +11,35 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background-color: #f4f4f9;
             color: #333;
-            max-width: 800px;
             margin: 40px auto;
+            padding: 0 20px;
+        }
+        #page-wrapper {
+            display: flex;
+            gap: 30px;
+            align-items: flex-start;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        #main-content {
+            flex: 2;
+        }
+        #sidebar {
+            flex: 1;
+            position: sticky;
+            top: 40px;
+        }
+        .card {
+            background-color: #fff;
             padding: 20px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             border-radius: 10px;
-            background-color: #fff;
+            margin-bottom: 20px;
         }
         h1 {
             color: #1a1a1a;
             text-align: center;
+            margin-top: 0;
         }
         .input-group {
             margin-bottom: 20px;
@@ -114,10 +133,9 @@
             word-break: break-all;
             transition: background-color 0.2s;
         }
-        #device-info-details li {
+        #device-info-details li, #last-check-details li {
              border-left: 4px solid #007aff;
         }
-        /* Стили для пропущенных событий */
         #missing-event-list li {
             border-left: 4px solid #af52de;
             cursor: pointer;
@@ -128,7 +146,6 @@
         #missing-event-list li.active {
              background-color: #e9e9f0;
         }
-        /* Стили для новых/неизвестных событий */
         #unknown-event-list li {
              border-left: 4px solid #ff9500;
         }
@@ -149,48 +166,61 @@
         }
         .empty {
              color: #5f6368;
-             border-left-color: #34c759; /* Зеленый, если все в порядке */
+             border-left-color: #cccccc;
              cursor: default;
         }
     </style>
 </head>
 <body>
 
-    <h1>Завантажувач та аналізатор .har файлів</h1>
+    <div id="page-wrapper">
+        <div id="main-content" class="card">
+            <h1>Завантажувач та аналізатор .har файлів</h1>
 
-    <div class="input-group">
-        <label for="sheet-url-input">URL Google Таблиці:</label>
-        <input type="url" id="sheet-url-input" placeholder="Вставте посилання на публічну Google Таблицю...">
-    </div>
+            <div class="input-group">
+                <label for="sheet-url-input">URL Google Таблиці:</label>
+                <input type="url" id="sheet-url-input" placeholder="Вставте посилання на публічну Google Таблицю...">
+            </div>
 
-    <div class="controls-wrapper">
-        <label for="har-file-input" class="file-upload-label">Оберіть .har файл</label>
-        <input type="file" id="har-file-input" accept=".har">
-        <button id="compare-button" disabled>Зробити порівняння</button>
-    </div>
-    <div id="file-name">Файл не обрано</div>
-    
-    <div id="status-message"></div>
+            <div class="controls-wrapper">
+                <label for="har-file-input" class="file-upload-label">Оберіть .har файл</label>
+                <input type="file" id="har-file-input" accept=".har">
+                <button id="compare-button" disabled>Зробити порівняння</button>
+            </div>
+            <div id="file-name">Файл не обрано</div>
+            
+            <div id="status-message"></div>
 
-    <div id="device-info-container" class="results-section">
-        <h2>Інформація про пристрій та версію:</h2>
-        <ul id="device-info-details">
-             <li class="empty">Інформація не знайдена...</li>
-        </ul>
-    </div>
+            <div id="device-info-container" class="results-section">
+                <h2>Інформація про пристрій та версію:</h2>
+                <ul id="device-info-details">
+                     <li class="empty">Інформація не знайдена...</li>
+                </ul>
+            </div>
 
-    <div id="results-container" class="results-section">
-        <h2>Події з таблиці, які не знайдено у файлі:</h2>
-        <ul id="missing-event-list">
-            <li class="empty">Тут буде список пропущених подій...</li>
-        </ul>
-    </div>
+            <div id="results-container" class="results-section">
+                <h2>Події з таблиці, які не знайдено у файлі:</h2>
+                <ul id="missing-event-list">
+                    <li class="empty">Тут буде список пропущених подій...</li>
+                </ul>
+            </div>
 
-    <div id="unknown-results-container" class="results-section">
-        <h2>Події, знайдені у файлі, але відсутні у таблиці:</h2>
-        <ul id="unknown-event-list">
-            <li class="empty">Тут буде список нових/невідомих подій...</li>
-        </ul>
+            <div id="unknown-results-container" class="results-section">
+                <h2>Події, знайдені у файлі, але відсутні у таблиці:</h2>
+                <ul id="unknown-event-list">
+                    <li class="empty">Тут буде список нових/невідомих подій...</li>
+                </ul>
+            </div>
+        </div>
+
+        <aside id="sidebar">
+            <div class="card">
+                <h2>Остання перевірка</h2>
+                <ul id="last-check-details">
+                    <li class="empty">Ще не було перевірок.</li>
+                </ul>
+            </div>
+        </aside>
     </div>
 
     <script>
@@ -210,12 +240,15 @@
         const missingEventList = document.getElementById('missing-event-list');
         const unknownEventList = document.getElementById('unknown-event-list');
         const deviceInfoDetails = document.getElementById('device-info-details');
+        const lastCheckDetails = document.getElementById('last-check-details');
         const fileNameSpan = document.getElementById('file-name');
         const statusMessage = document.getElementById('status-message');
         const sheetUrlInput = document.getElementById('sheet-url-input');
         const compareButton = document.getElementById('compare-button');
 
         let selectedHarFile = null;
+        
+        document.addEventListener('DOMContentLoaded', loadLastCheckInfo);
 
         fileInput.addEventListener('change', handleFileSelect);
         sheetUrlInput.addEventListener('input', updateButtonState);
@@ -333,7 +366,14 @@
                         displayMissingEvents(missingEvents, knownEventsMap);
                         displayUnknownEvents(unknownEvents);
 
-                        // После анализа отправляем отчет
+                        saveAndDisplayLastCheckInfo({
+                            missingCount: missingEvents.length,
+                            unknownCount: [...new Set(unknownEvents)].length,
+                            harFileName: selectedHarFile.name,
+                            os: deviceInfo ? deviceInfo.os : 'Не знайдено',
+                            version: appVersion || 'Не знайдено'
+                        });
+
                         sendEmailReport(missingEvents, unknownEvents, userUrl, deviceInfo, appVersion);
 
                     } catch (error) {
@@ -353,7 +393,7 @@
             const requiredKeys = ['brand', 'model', 'os_version', 'os'];
 
             function recursiveDeviceSearch(obj) {
-                if (deviceObject) return; // Stop if already found
+                if (deviceObject) return;
                 if (typeof obj !== 'object' || obj === null) return;
 
                 if (obj.hasOwnProperty('device')) {
@@ -365,14 +405,10 @@
                     }
                 }
 
-                for (const k in obj) {
-                    if (obj.hasOwnProperty(k)) {
-                        recursiveDeviceSearch(obj[k]);
-                    }
-                }
+                for (const k in obj) if (obj.hasOwnProperty(k)) recursiveDeviceSearch(obj[k]);
             }
             
-            if (harData && harData.log && harData.log.entries) {
+            if (harData?.log?.entries) {
                 for (const entry of harData.log.entries) {
                     if (deviceObject) break;
                     const textSources = [];
@@ -394,27 +430,23 @@
             let appVersion = null;
 
             function recursiveSearch(obj) {
-                if (appVersion) return; // Stop if already found
+                if (appVersion) return;
                 if (typeof obj !== 'object' || obj === null) return;
 
-                if (obj.hasOwnProperty('app') && typeof obj.app === 'object' && obj.app !== null && obj.app.hasOwnProperty('version')) {
+                if (obj.app?.version) {
                     appVersion = obj.app.version;
                     return;
                 }
                 
-                if (obj.hasOwnProperty('event_type') && obj.event_type === 'app' && obj.hasOwnProperty('version')) {
+                if (obj.event_type === 'app' && obj.version) {
                     appVersion = obj.version;
                     return;
                 }
 
-                for (const k in obj) {
-                    if (obj.hasOwnProperty(k)) {
-                        recursiveSearch(obj[k]);
-                    }
-                }
+                for (const k in obj) if (obj.hasOwnProperty(k)) recursiveSearch(obj[k]);
             }
 
-            if (harData && harData.log && harData.log.entries) {
+            if (harData?.log?.entries) {
                 for (const entry of harData.log.entries) {
                     if (appVersion) break;
                     const textSources = [];
@@ -449,16 +481,16 @@
                 } catch(e) { /* Игнорируем */ }
             }
 
-            if (harData && harData.log && harData.log.entries) {
+            if (harData?.log?.entries) {
                 for (const entry of harData.log.entries) {
-                    if (entry.request && entry.request.url) {
+                    if (entry.request?.url) {
                         try {
                             const url = new URL(entry.request.url);
                             if (url.searchParams.has(searchKey)) foundEvents.add(url.searchParams.get(searchKey));
                         } catch(e) { /* Игнорируем */ }
                     }
 
-                    if (entry.request && entry.request.postData && entry.request.postData.text) {
+                    if (entry.request?.postData?.text) {
                         const text = entry.request.postData.text;
                         try {
                             recursiveSearch(JSON.parse(text));
@@ -467,7 +499,7 @@
                         }
                     }
                     
-                     if (entry.response && entry.response.content && entry.response.content.text) {
+                     if (entry.response?.content?.text) {
                         try {
                             recursiveSearch(JSON.parse(entry.response.content.text));
                         } catch (e) { /* Игнорируем */ }
@@ -508,6 +540,14 @@
         function displayMissingEvents(events, knownEventsMap) {
             missingEventList.innerHTML = '';
 
+            events.sort((a, b) => {
+                const aIsGwth = a.startsWith('gwth');
+                const bIsGwth = b.startsWith('gwth');
+                if (aIsGwth && !bIsGwth) return 1;
+                if (!aIsGwth && bIsGwth) return -1;
+                return a.localeCompare(b);
+            });
+
             if (events.length > 0) {
                 events.forEach(eventType => {
                     const li = document.createElement('li');
@@ -534,16 +574,24 @@
             } else {
                 const li = document.createElement('li');
                 li.className = 'empty';
-                li.textContent = 'Пропущених подій немає. Всі події з таблиці були знайдені у файлі.';
+                li.innerHTML = '<strong>Все добре!</strong> Пропущених подій немає.';
                 missingEventList.appendChild(li);
             }
         }
 
         function displayUnknownEvents(events) {
             unknownEventList.innerHTML = '';
+            const uniqueUnknownEvents = [...new Set(events)];
 
-            if (events.length > 0) {
-                 const uniqueUnknownEvents = [...new Set(events)];
+            uniqueUnknownEvents.sort((a, b) => {
+                const aIsGwth = a.startsWith('gwth');
+                const bIsGwth = b.startsWith('gwth');
+                if (aIsGwth && !bIsGwth) return 1;
+                if (!aIsGwth && bIsGwth) return -1;
+                return a.localeCompare(b);
+            });
+
+            if (uniqueUnknownEvents.length > 0) {
                 uniqueUnknownEvents.forEach(eventType => {
                     const li = document.createElement('li');
                     li.textContent = eventType;
@@ -552,7 +600,7 @@
             } else {
                 const li = document.createElement('li');
                 li.className = 'empty';
-                li.textContent = 'Нових/невідомих подій у файлі не знайдено.';
+                li.innerHTML = '<strong>Все добре!</strong> Нових/невідомих подій немає.';
                 unknownEventList.appendChild(li);
             }
         }
@@ -566,10 +614,41 @@
             li.className = 'error';
             li.textContent = message;
 
-            // Display error in all sections for visibility
             missingEventList.appendChild(li.cloneNode(true));
             unknownEventList.appendChild(li.cloneNode(true));
             deviceInfoDetails.appendChild(li);
+        }
+
+        function loadLastCheckInfo() {
+            const savedData = localStorage.getItem('harAnalyzerLastCheck');
+            if (savedData) {
+                displayLastCheckInfo(JSON.parse(savedData));
+            }
+        }
+
+        function saveAndDisplayLastCheckInfo(data) {
+            const lastCheckData = {
+                ...data,
+                checkDate: new Date().toLocaleString('uk-UA')
+            };
+            localStorage.setItem('harAnalyzerLastCheck', JSON.stringify(lastCheckData));
+            displayLastCheckInfo(lastCheckData);
+        }
+
+        function displayLastCheckInfo(data) {
+            lastCheckDetails.innerHTML = '';
+            if (data) {
+                lastCheckDetails.innerHTML = `
+                    <li><strong>Дата:</strong> ${data.checkDate}</li>
+                    <li><strong>Файл:</strong> ${data.harFileName}</li>
+                    <li><strong>OS:</strong> ${data.os}</li>
+                    <li><strong>Version:</strong> ${data.version}</li>
+                    <li><strong>Пропущено подій:</strong> ${data.missingCount}</li>
+                    <li><strong>Невідомо подій:</strong> ${data.unknownCount}</li>
+                `;
+            } else {
+                lastCheckDetails.innerHTML = '<li class="empty">Ще не було перевірок.</li>';
+            }
         }
 
         function sendEmailReport(missingEvents, unknownEvents, sheetUrl, deviceInfo, appVersion) {
@@ -604,8 +683,8 @@
             }
 
             let unknownEventsHtml = '<h3 style="margin-top: 20px;">Події, знайдені у файлі, але відсутні у таблиці:</h3>';
-            if (unknownEvents.length > 0) {
-                const uniqueUnknownEvents = [...new Set(unknownEvents)];
+            const uniqueUnknownEvents = [...new Set(unknownEvents)];
+            if (uniqueUnknownEvents.length > 0) {
                 unknownEventsHtml += '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; width: 100%; border-color: #ddd;"><tbody>';
                 uniqueUnknownEvents.forEach(event => {
                     unknownEventsHtml += `<tr><td style="padding: 8px;">${event}</td></tr>`;
