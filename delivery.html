@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
     <style>
-        /* Стили скопированы из основного файла для автономной работы */
         :root {
             --primary-color: #007aff; --danger-color: #d93025; --warning-color: #ff9500;
             --info-color: #af52de; --success-color: #34c759; --matched-color: #32ade6;
@@ -44,7 +43,6 @@
         .matched-event-list li { border-left: 4px solid var(--matched-color); }
         .missing-event-list li { border-left: 4px solid var(--info-color); }
         .unknown-event-list li { border-left: 4px solid var(--warning-color); }
-        .param-error-list li { border-left: 4px solid var(--danger-color); }
         .empty { color: var(--text-muted); border-left-color: var(--success-color); }
         .error { color: var(--danger-color); font-weight: bold; border-left-color: var(--danger-color); }
     </style>
@@ -70,10 +68,6 @@
     <ul id="dl-matched-event-list" class="collapsible-content matched-event-list"></ul>
 </div>
 <div class="results-section">
-    <div class="collapsible-header"><h2>Події з відсутнім `custom_properties`</h2><span class="section-count"></span><span class="toggle-arrow">▼</span></div>
-    <ul id="dl-param-error-list" class="collapsible-content param-error-list"></ul>
-</div>
-<div class="results-section">
     <div class="collapsible-header"><h2>Події з таблиці, які не знайдено</h2><span class="section-count"></span><span class="toggle-arrow">▼</span></div>
     <ul id="dl-missing-event-list" class="collapsible-content missing-event-list"></ul>
 </div>
@@ -83,8 +77,8 @@
 </div>
 
 <script>
-    // --- DELIVERY FLOW SCRIPT ---
-    const EMAIL_CONFIG = { SERVICE_ID: 'service_3kwzdot', TEMPLATE_ID: 'template_q5xaywa', USER_ID: 'qZLCGx6dDb35IBL6p' };
+    // --- DELIVERY FLOW SCRIPT (Final) ---
+    const EMAIL_CONFIG = { SERVICE_ID: 'service_2uabwau', TEMPLATE_ID: 'template_1bgfl0d', USER_ID: 'gY-IRzujg3ekGz2iE' };
     emailjs.init(EMAIL_CONFIG.USER_ID);
 
     const ui = {
@@ -125,7 +119,7 @@
     }
 
     async function startComparison() {
-        document.querySelectorAll('#tab-dl .collapsible-content').forEach(el => el.innerHTML = '<li class="empty">...</li>');
+        document.querySelectorAll('.collapsible-content').forEach(el => el.innerHTML = '<li class="empty">...</li>');
         ui.compareButton.textContent = 'Аналіз...';
         ui.compareButton.disabled = true;
         try {
@@ -138,8 +132,14 @@
                     const appVersion = findAppVersion(harData);
                     const timeRange = findEventTimestamps(harData);
                     displayDeviceInfo('dl-device-info', deviceInfo, appVersion, timeRange);
+
                     const allHarEventObjects = findEventObjects(harData);
-                    const results = performAnalysis(allHarEventObjects, knownEventsMap, 'dl');
+
+                    const deliveryFlowEvents = allHarEventObjects.filter(obj =>
+                        obj.event.custom_properties && obj.event.custom_properties.section === 'delivery'
+                    );
+
+                    const results = performAnalysis(deliveryFlowEvents, knownEventsMap, 'dl');
 
                     collapseAllSections();
                     await sendEmailReport(results, ui.sheetUrlInput.value.trim(), deviceInfo, appVersion, timeRange, selectedFile.name);
@@ -165,21 +165,22 @@
     function performAnalysis(harEvents, knownEventsMap, viewPrefix) {
         const groupedEvents = groupEvents(harEvents);
         const harEventsSet = new Set(harEvents.map(evt => evt.event.event_type));
-        const customPropErrors = validateCustomProperties(groupedEvents);
-        displayEventsWithDetails(`${viewPrefix}-param-error-list`, customPropErrors);
+
         const matchedEvents = Array.from(knownEventsMap.keys()).filter(event => harEventsSet.has(event));
         displayEventsWithDetails(`${viewPrefix}-matched-event-list`, matchedEvents.map(type => groupedEvents.get(type)));
+
         const missingEvents = Array.from(knownEventsMap.keys()).filter(event => !harEventsSet.has(event));
         displayMissingEvents(`${viewPrefix}-missing-event-list`, missingEvents);
+
         const unknownEvents = Array.from(harEventsSet).filter(event => !knownEventsMap.has(event));
         displayEventsWithDetails(`${viewPrefix}-unknown-event-list`, unknownEvents.map(type => groupedEvents.get(type)));
+
         updateSectionCounters(viewPrefix, {
             matched: matchedEvents.length,
-            param: customPropErrors.length,
             missing: missingEvents.length,
             unknown: unknownEvents.length
         });
-        return { customPropErrors, matchedEvents, missingEvents, unknownEvents };
+        return { matchedEvents, missingEvents, unknownEvents };
     }
 
     async function fetchKnownEvents(userUrl) {
@@ -204,17 +205,35 @@
 
     function findEventObjects(harData) {
         const foundEvents = [];
-        if (harData?.log?.entries) {
-            for (const entry of harData.log.entries) {
-                const postDataText = entry.request?.postData?.text;
-                const time = entry.startedDateTime;
-                if (postDataText) {
-                    try {
-                        const data = JSON.parse(postDataText);
-                        const events = Array.isArray(data) ? data : [data];
-                        events.forEach(event => { if (event.event_type) foundEvents.push({ event, time }); });
-                    } catch (e) {}
-                }
+        if (!harData?.log?.entries) return foundEvents;
+
+        for (const entry of harData.log.entries) {
+            const time = entry.startedDateTime;
+            const textSources = [];
+
+            if (entry.request?.url) {
+                try {
+                    const url = new URL(entry.request.url);
+                    if (url.searchParams.has('event_type')) {
+                        const event = { event_type: url.searchParams.get('event_type'), custom_properties: {} };
+                        for(const [key, value] of url.searchParams.entries()) {
+                            if (key !== 'event_type') event.custom_properties[key] = value;
+                        }
+                        foundEvents.push({ event, time });
+                    }
+                } catch(e) {}
+            }
+
+            if (entry.request?.postData?.text) textSources.push(entry.request.postData.text);
+
+            for (const text of textSources) {
+                try {
+                    const data = JSON.parse(text);
+                    const events = Array.isArray(data) ? data : (data.event_type ? [data] : []);
+                    events.forEach(event => {
+                        if (event.event_type) foundEvents.push({ event, time });
+                    });
+                } catch (e) { /* Silently ignore parsing errors for individual entries */ }
             }
         }
         return foundEvents;
@@ -230,16 +249,6 @@
         return grouped;
     }
 
-    function validateCustomProperties(groupedEvents) {
-        const errors = [];
-        for (const data of groupedEvents.values()) {
-            if (data.instances.some(inst => !inst.event.custom_properties || Object.keys(inst.event.custom_properties).length === 0)) {
-                errors.push(data);
-            }
-        }
-        return errors;
-    }
-
     function findEventTimestamps(harData) {
         const timestamps = harData?.log?.entries.map(e => new Date(e.startedDateTime)).filter(d => !isNaN(d));
         if (timestamps.length === 0) return null;
@@ -247,12 +256,12 @@
     }
 
     function collapseAllSections() {
-        document.querySelectorAll('#tab-dl .collapsible-content').forEach(content => content.classList.add('collapsed'));
-        document.querySelectorAll('#tab-dl .toggle-arrow').forEach(arrow => arrow.classList.add('collapsed'));
+        document.querySelectorAll('.collapsible-content').forEach(content => content.classList.add('collapsed'));
+        document.querySelectorAll('.toggle-arrow').forEach(arrow => arrow.classList.add('collapsed'));
     }
 
     function updateSectionCounters(prefix, counts) {
-        const mapping = { matched: 'matched-event-list', param: 'param-error-list', missing: 'missing-event-list', unknown: 'unknown-event-list' };
+        const mapping = { matched: 'matched-event-list', missing: 'missing-event-list', unknown: 'unknown-event-list' };
         for(const [key, id] of Object.entries(mapping)) {
             const header = document.getElementById(`${prefix}-${id}`)?.previousElementSibling;
             if(header) header.querySelector('.section-count').textContent = `(${counts[key]})`;
@@ -298,34 +307,31 @@
     }
 
     function displayError(message) {
-        document.querySelectorAll('.collapsible-content, #rh-device-info-details, #rh-missing-event-list, #rh-unknown-event-list').forEach(el => el.innerHTML = `<li class="error">${message}</li>`);
+        document.querySelectorAll('#tab-dl .collapsible-content').forEach(el => el.innerHTML = `<li class="error">${message}</li>`);
     }
 
     async function sendEmailReport(results, _, sheetUrl, deviceInfo, appVersion, timeRange, fileName) {
-        function buildReportSection(title, data) {
-            let html = `<h3 style="margin-top: 20px;">${title}: ${data.length}</h3>`;
-            return html;
-        }
         let deviceInfoHtml = '<h3>Інформація про пристрій та версію:</h3>';
         if (deviceInfo || appVersion || timeRange) {
             deviceInfoHtml += '<ul style="list-style-type: none; padding: 0;">';
             if (deviceInfo) Object.entries(deviceInfo).forEach(([k,v]) => deviceInfoHtml += `<li><strong>${k}:</strong> ${v}</li>`);
             if (appVersion) deviceInfoHtml += `<li><strong>version:</strong> ${appVersion}</li>`;
-            if (timeRange) deviceInfoHtml += `<li><strong>Період:</strong> ${timeRange.first.toLocaleString('uk-UA')} - ${timeRange.last.toLocaleString('uk-UA')}</li>`;
+            if (timeRange && timeRange.first && timeRange.last) {
+                deviceInfoHtml += `<li><strong>Період:</strong> ${timeRange.first.toLocaleString('uk-UA')} - ${timeRange.last.toLocaleString('uk-UA')}</li>`;
+            }
             deviceInfoHtml += '</ul>';
         } else { deviceInfoHtml += '<p>Інформація не знайдена.</p>'; }
 
         let summary = '<h2>Результати аналізу:</h2>';
-        summary += buildReportSection('Збіги', results.matchedEvents);
-        summary += buildReportSection('Події з відсутнім `custom_properties`', results.customPropErrors);
-        summary += buildReportSection('Нові/невідомі події', results.unknownEvents);
-        summary += buildReportSection('Події з таблиці, які не знайдено', results.missingEvents);
+        summary += `<h3 style="margin-top: 20px;">Збіги: ${results.matchedEvents.length}</h3>`;
+        summary += `<h3 style="margin-top: 20px;">Нові/невідомі події: ${results.unknownEvents.length}</h3>`;
+        summary += `<h3 style="margin-top: 20px;">Події з таблиці, які не знайдено: ${results.missingEvents.length}</h3>`;
 
         const templateParams = {
             subject: `DL Звіт від ${new Date().toLocaleString('uk-UA')} для файлу: ${fileName}`,
             har_file_name: fileName, sheet_url: sheetUrl,
             email_body_html: deviceInfoHtml + summary,
-            to_email: 'stillwcraft@gmail.com'
+            to_email: 'elichman.qa@gmail.com'
         };
         ui.statusMessage.textContent = 'Відправка звіту на пошту...'; ui.statusMessage.style.color = 'var(--primary-color)';
         try {
@@ -339,7 +345,6 @@
         }
     }
 
-    // SHARED HELPERS
     function convertGoogleSheetUrlToCsvUrl(url) {
         const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/); if (!match || !match[1]) return null; const sheetId = match[1]; const gidMatch = url.match(/[#&]gid=(\d+)/); let csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`; if (gidMatch && gidMatch[1]) { csvUrl += `&gid=${gidMatch[1]}`; } return csvUrl;
     }
@@ -356,3 +361,4 @@
 </script>
 </body>
 </html>
+
