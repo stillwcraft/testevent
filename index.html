@@ -225,12 +225,13 @@
 
     <script>
         // --- НАСТРОЙКА EMAILJS ---
-        // ЗАМЕНИТЕ НА ВАШИ ДАННЫЕ С САЙТА emailjs.com
         const EMAILJS_SERVICE_ID = 'service_3kwzdot';
         const EMAILJS_TEMPLATE_ID = 'template_q5xaywa';
         const EMAILJS_USER_ID = 'qZLCGx6dDb35IBL6p';
 
-        // Инициализация EmailJS
+        // --- НАСТРОЙКА ОБЩЕГО ХРАНИЛИЩА ---
+        const SHARED_DATA_URL = 'https://api.npoint.io/91e7451f1f2e5a05a1f8';
+
         (function() {
             emailjs.init(EMAILJS_USER_ID);
         })();
@@ -619,20 +620,38 @@
             deviceInfoDetails.appendChild(li);
         }
 
-        function loadLastCheckInfo() {
-            const savedData = localStorage.getItem('harAnalyzerLastCheck');
-            if (savedData) {
-                displayLastCheckInfo(JSON.parse(savedData));
+        async function loadLastCheckInfo() {
+            if (!SHARED_DATA_URL.startsWith('https://')) return;
+            try {
+                const response = await fetch(SHARED_DATA_URL);
+                if (response.ok) {
+                    const savedData = await response.json();
+                     if (savedData && Object.keys(savedData).length > 0) {
+                        displayLastCheckInfo(savedData);
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading shared data:', error);
             }
         }
 
-        function saveAndDisplayLastCheckInfo(data) {
+        async function saveAndDisplayLastCheckInfo(data) {
             const lastCheckData = {
                 ...data,
                 checkDate: new Date().toLocaleString('uk-UA')
             };
-            localStorage.setItem('harAnalyzerLastCheck', JSON.stringify(lastCheckData));
-            displayLastCheckInfo(lastCheckData);
+            displayLastCheckInfo(lastCheckData); // Отображаем сразу
+
+            if (!SHARED_DATA_URL.startsWith('https://')) return;
+            try {
+                await fetch(SHARED_DATA_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(lastCheckData)
+                });
+            } catch (error) {
+                console.error('Error saving shared data:', error);
+            }
         }
 
         function displayLastCheckInfo(data) {
