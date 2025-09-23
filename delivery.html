@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #007aff; --danger-color: #d93025; --warning-color: #ff9500;
+            --info-color: #af52de; --success-color: #34c759; --matched-color: #32ade6;
+            --border-color: #e0e0e0; --bg-light: #f9f9f9; --text-color: #333; --text-muted: #5f6368;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--text-color); }
+        .input-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; }
+        input[type="url"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        .controls-wrapper { display: flex; align-items: center; justify-content: center; gap: 20px; margin: 20px auto; flex-wrap: wrap; }
+        input[type="file"] { display: none; }
+        .file-upload-label { display: inline-block; padding: 12px 30px; border: 2px dashed var(--primary-color); border-radius: 8px; cursor: pointer; color: var(--primary-color); background-color: #f4f7ff; }
+        .compare-button { padding: 14px 30px; font-size: 16px; font-weight: 600; color: #fff; background-color: var(--primary-color); border: none; border-radius: 8px; cursor: pointer; min-width: 220px; text-align: center;}
+        .compare-button:disabled { background-color: #c7c7cc; cursor: not-allowed; }
+        .file-name { width: 100%; text-align: center; margin-top: 10px; font-style: italic; color: var(--text-muted); }
+        .status-message { text-align: center; margin-top: 15px; font-weight: bold; }
+        .results-section { margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px; }
+        .collapsible-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .collapsible-header h2 { margin: 0; font-size: 18px; flex-grow: 1; }
+        .section-count { font-weight: normal; color: var(--text-muted); margin-left: 8px; font-size: 16px; }
+        .toggle-arrow { font-size: 20px; transition: transform 0.3s ease; margin-left: 10px; }
+        .collapsible-content.collapsed { display: none; }
+        .toggle-arrow.collapsed { transform: rotate(-90deg); }
+        ul { list-style-type: none; padding: 0; }
+        li { background-color: var(--bg-light); padding: 10px 15px; border-radius: 5px; margin-bottom: 8px; }
+        .event-item { flex-direction: column; align-items: stretch; cursor: pointer; }
+        .event-item-header { display: flex; justify-content: space-between; align-items: center; }
+        .event-name { font-weight: 500; }
+        .event-count { background-color: #e5e5ea; color: var(--text-muted); padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 500; margin-left: 10px; }
+        .details-wrapper { margin-top: 10px; display: none; }
+        .details-wrapper details { margin-bottom: 5px; background: #fff; border-radius: 4px; border: 1px solid var(--border-color); }
+        .details-wrapper summary { padding: 5px 10px; font-size: 13px; cursor: pointer; color: var(--text-muted); }
+        .details-wrapper pre { background-color: #f0f0f0; padding: 10px; margin: 0; border-radius: 0 0 4px 4px; white-space: pre-wrap; word-break: break-all; font-size: 12px; color: #444; }
+        .date-mismatch { color: var(--danger-color); font-weight: bold; }
+        .device-info li { border-left: 4px solid var(--primary-color); }
+        .matched-event-list li { border-left: 4px solid var(--matched-color); }
+        .missing-event-list li { border-left: 4px solid var(--info-color); }
+        .unknown-event-list li { border-left: 4px solid var(--warning-color); }
+        .empty { color: var(--text-muted); border-left-color: var(--success-color); }
+        .error { color: var(--danger-color); font-weight: bold; border-left-color: var(--danger-color); }
+    </style>
+</head>
+<body>
+<div class="input-group">
+    <label for="dl-sheet-url-input">URL Google Таблиці:</label>
+    <input type="url" id="dl-sheet-url-input" placeholder="Вставте посилання на публічну Google Таблицю...">
+</div>
+<div class="controls-wrapper">
+    <label for="dl-har-file-input" class="file-upload-label">Оберіть .har файл</label>
+    <input type="file" id="dl-har-file-input" accept=".har">
+    <button id="dl-compare-button" class="compare-button" disabled>Зробити порівння</button>
+</div>
+<div id="dl-file-name" class="file-name">Файл не обрано</div>
+<div id="dl-status-message" class="status-message"></div>
+<div class="results-section">
+    <div class="collapsible-header"><h2>Інформація про пристрій</h2><span class="section-count"></span><span class="toggle-arrow">▼</span></div>
+    <ul id="dl-device-info" class="collapsible-content device-info"></ul>
+</div>
+<div class="results-section">
+    <div class="collapsible-header"><h2>Збіги</h2><span class="section-count"></span><span class="toggle-arrow">▼</span></div>
+    <ul id="dl-matched-event-list" class="collapsible-content matched-event-list"></ul>
+</div>
+<div class="results-section">
+    <div class="collapsible-header"><h2>Події з таблиці, які не знайдено</h2><span class="section-count"></span><span class="toggle-arrow">▼</span></div>
+    <ul id="dl-missing-event-list" class="collapsible-content missing-event-list"></ul>
+</div>
+<div class="results-section">
+    <div class="collapsible-header"><h2>Нові/невідомі події</h2><span class="section-count"></span><span class="toggle-arrow">▼</span></div>
+    <ul id="dl-unknown-event-list" class="collapsible-content unknown-event-list"></ul>
+</div>
+
+<script>
+    // --- DELIVERY FLOW SCRIPT (Final) ---
+    const EMAIL_CONFIG = { SERVICE_ID: 'service_2uabwau', TEMPLATE_ID: 'template_1bgfl0d', USER_ID: 'gY-IRzujg3ekGz2iE' };
+    emailjs.init(EMAIL_CONFIG.USER_ID);
+
+    const ui = {
+        fileInput: document.getElementById('dl-har-file-input'),
+        sheetUrlInput: document.getElementById('dl-sheet-url-input'),
+        compareButton: document.getElementById('dl-compare-button'),
+        fileNameSpan: document.getElementById('dl-file-name'),
+        statusMessage: document.getElementById('dl-status-message')
+    };
+    let selectedFile = null;
+
+    document.body.addEventListener('click', (e) => {
+        const header = e.target.closest('.collapsible-header');
+        const eventItem = e.target.closest('.event-item');
+        if (header) {
+            const content = header.nextElementSibling;
+            const arrow = header.querySelector('.toggle-arrow');
+            content.classList.toggle('collapsed');
+            arrow.classList.toggle('collapsed');
+        } else if (eventItem && !e.target.closest('details')) {
+            const detailsWrapper = eventItem.querySelector('.details-wrapper');
+            if (detailsWrapper) {
+                detailsWrapper.style.display = detailsWrapper.style.display === 'block' ? 'none' : 'block';
+            }
+        }
+    });
+
+    ui.fileInput.addEventListener('change', (e) => {
+        selectedFile = e.target.files[0];
+        ui.fileNameSpan.textContent = selectedFile ? `Обрано файл: ${selectedFile.name}` : 'Файл не обрано';
+        updateButtonState();
+    });
+    ui.sheetUrlInput.addEventListener('input', updateButtonState);
+    ui.compareButton.addEventListener('click', startComparison);
+
+    function updateButtonState() {
+        ui.compareButton.disabled = !(ui.sheetUrlInput.value.trim() !== '' && selectedFile);
+    }
+
+    async function startComparison() {
+        document.querySelectorAll('.collapsible-content').forEach(el => el.innerHTML = '<li class="empty">...</li>');
+        ui.compareButton.textContent = 'Аналіз...';
+        ui.compareButton.disabled = true;
+        try {
+            const knownEventsMap = await fetchKnownEvents(ui.sheetUrlInput.value.trim());
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const harData = JSON.parse(e.target.result);
+                    const deviceInfo = findDeviceObject(harData);
+                    const appVersion = findAppVersion(harData);
+                    const timeRange = findEventTimestamps(harData);
+                    displayDeviceInfo('dl-device-info', deviceInfo, appVersion, timeRange);
+
+                    const allHarEventObjects = findEventObjects(harData);
+
+                    const deliveryFlowEvents = allHarEventObjects.filter(obj =>
+                        obj.event.custom_properties && obj.event.custom_properties.section === 'delivery'
+                    );
+
+                    const results = performAnalysis(deliveryFlowEvents, knownEventsMap, 'dl');
+
+                    collapseAllSections();
+                    await sendEmailReport(results, ui.sheetUrlInput.value.trim(), deviceInfo, appVersion, timeRange, selectedFile.name);
+                    ui.statusMessage.textContent = 'Порівняння завершено. Звіт успішно відправлено!';
+                    ui.statusMessage.style.color = 'var(--success-color)';
+                } catch (error) {
+                    displayError("Помилка! Не вдалося прочитати файл. Переконайтеся, що це коректний .har (JSON) файл.");
+                    console.error("Помилка парсингу HAR файлу:", error);
+                } finally {
+                    ui.compareButton.textContent = 'Зробити порівння';
+                    updateButtonState();
+                }
+            };
+            reader.readAsText(selectedFile);
+        } catch (error) {
+            ui.statusMessage.textContent = `Помилка: ${error.message}`;
+            ui.statusMessage.style.color = 'var(--danger-color)';
+            ui.compareButton.textContent = 'Зробити порівння';
+            updateButtonState();
+        }
+    }
+
+    function performAnalysis(harEvents, knownEventsMap, viewPrefix) {
+        const groupedEvents = groupEvents(harEvents);
+        const harEventsSet = new Set(harEvents.map(evt => evt.event.event_type));
+
+        const matchedEvents = Array.from(knownEventsMap.keys()).filter(event => harEventsSet.has(event));
+        displayEventsWithDetails(`${viewPrefix}-matched-event-list`, matchedEvents.map(type => groupedEvents.get(type)));
+
+        const missingEvents = Array.from(knownEventsMap.keys()).filter(event => !harEventsSet.has(event));
+        displayMissingEvents(`${viewPrefix}-missing-event-list`, missingEvents);
+
+        const unknownEvents = Array.from(harEventsSet).filter(event => !knownEventsMap.has(event));
+        displayEventsWithDetails(`${viewPrefix}-unknown-event-list`, unknownEvents.map(type => groupedEvents.get(type)));
+
+        updateSectionCounters(viewPrefix, {
+            matched: matchedEvents.length,
+            missing: missingEvents.length,
+            unknown: unknownEvents.length
+        });
+        return { matchedEvents, missingEvents, unknownEvents };
+    }
+
+    async function fetchKnownEvents(userUrl) {
+        const csvUrl = convertGoogleSheetUrlToCsvUrl(userUrl);
+        if (!csvUrl) throw new Error('Невірний URL Google Таблиці.');
+        ui.statusMessage.textContent = 'Завантаження...';
+        try {
+            const response = await fetch(csvUrl);
+            if (!response.ok) throw new Error(`Мережева помилка: ${response.statusText}`);
+            const csvText = await response.text();
+            const knownEventsMap = new Map();
+            csvText.split('\n').slice(1).forEach(row => {
+                const columns = row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(val => val.replace(/"/g, '')) || [];
+                if (columns[0]) knownEventsMap.set(columns[0].trim(), true);
+            });
+            return knownEventsMap;
+        } catch (error) {
+            ui.statusMessage.textContent = `Помилка: ${error.message}`;
+            throw error;
+        }
+    }
+
+    function findEventObjects(harData) {
+        const foundEvents = [];
+        if (!harData?.log?.entries) return foundEvents;
+
+        for (const entry of harData.log.entries) {
+            const time = entry.startedDateTime;
+            const textSources = [];
+
+            if (entry.request?.url) {
+                try {
+                    const url = new URL(entry.request.url);
+                    if (url.searchParams.has('event_type')) {
+                        const event = { event_type: url.searchParams.get('event_type'), custom_properties: {} };
+                        for(const [key, value] of url.searchParams.entries()) {
+                            if (key !== 'event_type') event.custom_properties[key] = value;
+                        }
+                        foundEvents.push({ event, time });
+                    }
+                } catch(e) {}
+            }
+
+            if (entry.request?.postData?.text) textSources.push(entry.request.postData.text);
+
+            for (const text of textSources) {
+                try {
+                    const data = JSON.parse(text);
+                    const events = Array.isArray(data) ? data : (data.event_type ? [data] : []);
+                    events.forEach(event => {
+                        if (event.event_type) foundEvents.push({ event, time });
+                    });
+                } catch (e) { /* Silently ignore parsing errors for individual entries */ }
+            }
+        }
+        return foundEvents;
+    }
+
+    function groupEvents(eventObjects) {
+        const grouped = new Map();
+        eventObjects.forEach(({ event, time }) => {
+            const type = event.event_type;
+            if (!grouped.has(type)) grouped.set(type, { type, instances: [] });
+            grouped.get(type).instances.push({ event, time });
+        });
+        return grouped;
+    }
+
+    function findEventTimestamps(harData) {
+        const timestamps = harData?.log?.entries.map(e => new Date(e.startedDateTime)).filter(d => !isNaN(d));
+        if (timestamps.length === 0) return null;
+        return { first: new Date(Math.min(...timestamps)), last: new Date(Math.max(...timestamps)) };
+    }
+
+    function collapseAllSections() {
+        document.querySelectorAll('.collapsible-content').forEach(content => content.classList.add('collapsed'));
+        document.querySelectorAll('.toggle-arrow').forEach(arrow => arrow.classList.add('collapsed'));
+    }
+
+    function updateSectionCounters(prefix, counts) {
+        const mapping = { matched: 'matched-event-list', missing: 'missing-event-list', unknown: 'unknown-event-list' };
+        for(const [key, id] of Object.entries(mapping)) {
+            const header = document.getElementById(`${prefix}-${id}`)?.previousElementSibling;
+            if(header) header.querySelector('.section-count').textContent = `(${counts[key]})`;
+        }
+    }
+
+    function displayDeviceInfo(elementId, deviceInfo, appVersion, timeRange) {
+        const list = document.getElementById(elementId); list.innerHTML = ''; let infoFound = false;
+        if (deviceInfo) { infoFound = true; Object.entries(deviceInfo).forEach(([key, value]) => list.innerHTML += `<li><strong>${key}:</strong> ${value}</li>`); }
+        if (appVersion) { infoFound = true; list.innerHTML += `<li><strong>version:</strong> ${appVersion}</li>`; }
+        if (timeRange) {
+            infoFound = true;
+            const options = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' };
+            const firstStr = timeRange.first.toLocaleString('uk-UA', options); const lastStr = timeRange.last.toLocaleString('uk-UA', options);
+            const isToday = timeRange.first.toDateString() === new Date().toDateString();
+            list.innerHTML += `<li><strong>Період:</strong> <span class="${isToday ? '' : 'date-mismatch'}">${firstStr} - ${lastStr}</span></li>`;
+        }
+        if (!infoFound) list.innerHTML = '<li class="empty">Інформація не знайдена...</li>';
+    }
+
+    function displayEventsWithDetails(elementId, groupedEventData) {
+        const list = document.getElementById(elementId); list.innerHTML = '';
+        if (groupedEventData && groupedEventData.length > 0) {
+            groupedEventData.forEach(data => {
+                const li = document.createElement('li'); li.className = 'event-item';
+                li.innerHTML = `<div class="event-item-header"><span class="event-name">${data.type}</span><span class="event-count">(${data.instances.length}x)</span></div><div class="details-wrapper"></div>`;
+                const detailsWrapper = li.querySelector('.details-wrapper');
+                data.instances.forEach((instance, index) => {
+                    const details = document.createElement('details');
+                    const time = new Date(instance.time).toLocaleTimeString('uk-UA');
+                    details.innerHTML = `<summary>Екземпляр #${index + 1} (${time})</summary><pre>${JSON.stringify(instance.event.custom_properties || {}, null, 2)}</pre>`;
+                    detailsWrapper.appendChild(details);
+                });
+                list.appendChild(li);
+            });
+        } else { list.innerHTML = `<li class="empty">Немає подій для відображення.</li>`; }
+    }
+
+    function displayMissingEvents(elementId, events) {
+        const list = document.getElementById(elementId); list.innerHTML = '';
+        if (events.length > 0) events.forEach(eventType => list.innerHTML += `<li>${eventType}</li>`);
+        else list.innerHTML = '<li class="empty">Пропущених подій немає.</li>';
+    }
+
+    function displayError(message) {
+        document.querySelectorAll('#tab-dl .collapsible-content').forEach(el => el.innerHTML = `<li class="error">${message}</li>`);
+    }
+
+    async function sendEmailReport(results, _, sheetUrl, deviceInfo, appVersion, timeRange, fileName) {
+        let deviceInfoHtml = '<h3>Інформація про пристрій та версію:</h3>';
+        if (deviceInfo || appVersion || timeRange) {
+            deviceInfoHtml += '<ul style="list-style-type: none; padding: 0;">';
+            if (deviceInfo) Object.entries(deviceInfo).forEach(([k,v]) => deviceInfoHtml += `<li><strong>${k}:</strong> ${v}</li>`);
+            if (appVersion) deviceInfoHtml += `<li><strong>version:</strong> ${appVersion}</li>`;
+            if (timeRange && timeRange.first && timeRange.last) {
+                deviceInfoHtml += `<li><strong>Період:</strong> ${timeRange.first.toLocaleString('uk-UA')} - ${timeRange.last.toLocaleString('uk-UA')}</li>`;
+            }
+            deviceInfoHtml += '</ul>';
+        } else { deviceInfoHtml += '<p>Інформація не знайдена.</p>'; }
+
+        let summary = '<h2>Результати аналізу:</h2>';
+        summary += `<h3 style="margin-top: 20px;">Збіги: ${results.matchedEvents.length}</h3>`;
+        summary += `<h3 style="margin-top: 20px;">Нові/невідомі події: ${results.unknownEvents.length}</h3>`;
+        summary += `<h3 style="margin-top: 20px;">Події з таблиці, які не знайдено: ${results.missingEvents.length}</h3>`;
+
+        const templateParams = {
+            subject: `DL Звіт від ${new Date().toLocaleString('uk-UA')} для файлу: ${fileName}`,
+            har_file_name: fileName, sheet_url: sheetUrl,
+            email_body_html: deviceInfoHtml + summary,
+            to_email: 'elichman.qa@gmail.com'
+        };
+        ui.statusMessage.textContent = 'Відправка звіту на пошту...'; ui.statusMessage.style.color = 'var(--primary-color)';
+        try {
+            await emailjs.send(EMAIL_CONFIG.SERVICE_ID, EMAIL_CONFIG.TEMPLATE_ID, templateParams);
+            ui.statusMessage.textContent = 'Порівняння завершено. Звіт успішно відправлено!';
+            ui.statusMessage.style.color = 'var(--success-color)';
+        } catch (error) {
+            console.error('FAILED...', error);
+            ui.statusMessage.textContent = 'Порівняння завершено, але сталася помилка відправки звіту.';
+            ui.statusMessage.style.color = 'var(--danger-color)';
+        }
+    }
+
+    function convertGoogleSheetUrlToCsvUrl(url) {
+        const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/); if (!match || !match[1]) return null; const sheetId = match[1]; const gidMatch = url.match(/[#&]gid=(\d+)/); let csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`; if (gidMatch && gidMatch[1]) { csvUrl += `&gid=${gidMatch[1]}`; } return csvUrl;
+    }
+    function findDeviceObject(harData) {
+        let deviceObject = null; const requiredKeys = ['brand', 'model', 'os_version', 'os'];
+        function r(obj) { if (deviceObject || typeof obj !== 'object' || obj === null) return; if (obj.device && requiredKeys.every(k => obj.device.hasOwnProperty(k))) { deviceObject = obj.device; return; } for (const k in obj) if (obj.hasOwnProperty(k)) r(obj[k]); }
+        if (harData?.log?.entries) { for (const entry of harData.log.entries) { if (deviceObject) break; const sources = [entry.request?.postData?.text, entry.response?.content?.text].filter(Boolean); for (const text of sources) try { r(JSON.parse(text)); if (deviceObject) break; } catch (e) { } } } return deviceObject;
+    }
+    function findAppVersion(harData) {
+        let appVersion = null;
+        function r(obj) { if (appVersion || typeof obj !== 'object' || obj === null) return; if (obj.app?.version) { appVersion = obj.app.version; return; } if (obj.event_type === 'app' && obj.version) { appVersion = obj.version; return; } for (const k in obj) if (obj.hasOwnProperty(k)) r(obj[k]); }
+        if (harData?.log?.entries) { for (const entry of harData.log.entries) { if (appVersion) break; const sources = [entry.request?.postData?.text, entry.response?.content?.text].filter(Boolean); for (const text of sources) try { r(JSON.parse(text)); if (appVersion) break; } catch (e) { } } } return appVersion;
+    }
+</script>
+</body>
+</html>
+
