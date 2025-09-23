@@ -77,7 +77,7 @@
 </div>
 
 <script>
-    // --- DELIVERY FLOW SCRIPT (Final) ---
+    // --- DELIVERY FLOW SCRIPT (Final with Scroll Fix) ---
     const EMAIL_CONFIG = { SERVICE_ID: 'service_2uabwau', TEMPLATE_ID: 'template_1bgfl0d', USER_ID: 'gY-IRzujg3ekGz2iE' };
     emailjs.init(EMAIL_CONFIG.USER_ID);
 
@@ -93,15 +93,22 @@
     document.body.addEventListener('click', (e) => {
         const header = e.target.closest('.collapsible-header');
         const eventItem = e.target.closest('.event-item');
-        if (header) {
-            const content = header.nextElementSibling;
-            const arrow = header.querySelector('.toggle-arrow');
-            content.classList.toggle('collapsed');
-            arrow.classList.toggle('collapsed');
-        } else if (eventItem && !e.target.closest('details')) {
-            const detailsWrapper = eventItem.querySelector('.details-wrapper');
-            if (detailsWrapper) {
-                detailsWrapper.style.display = detailsWrapper.style.display === 'block' ? 'none' : 'block';
+        if (header || eventItem) {
+            if (header) {
+                const content = header.nextElementSibling;
+                const arrow = header.querySelector('.toggle-arrow');
+                content.classList.toggle('collapsed');
+                arrow.classList.toggle('collapsed');
+            }
+            if (eventItem && !e.target.closest('details')) {
+                const detailsWrapper = eventItem.querySelector('.details-wrapper');
+                if (detailsWrapper) {
+                    detailsWrapper.style.display = detailsWrapper.style.display === 'block' ? 'none' : 'block';
+                }
+            }
+            // Notify parent to resize
+            if (window.parent) {
+                window.parent.postMessage({ type: 'resize' }, '*');
             }
         }
     });
@@ -151,6 +158,7 @@
                 } finally {
                     ui.compareButton.textContent = 'Зробити порівння';
                     updateButtonState();
+                    if (window.parent) window.parent.postMessage({ type: 'resize' }, '*');
                 }
             };
             reader.readAsText(selectedFile);
