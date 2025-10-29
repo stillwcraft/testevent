@@ -318,7 +318,7 @@
         document.querySelectorAll('#tab-dl .collapsible-content').forEach(el => el.innerHTML = `<li class="error">${message}</li>`);
     }
 
-    async function sendEmailReport(results, _, sheetUrl, deviceInfo, appVersion, timeRange, fileName) {
+    async function sendEmailReport(results, sheetUrl, deviceInfo, appVersion, timeRange, fileName) {
         let deviceInfoHtml = '<h3>Інформація про пристрій та версію:</h3>';
         if (deviceInfo || appVersion || timeRange) {
             deviceInfoHtml += '<ul style="list-style-type: none; padding: 0;">';
